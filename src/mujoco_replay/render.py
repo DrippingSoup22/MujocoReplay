@@ -165,8 +165,17 @@ class SceneRenderer:
         else:
             mujoco.mjr_render(viewport, shapes, context)
         area = mujoco.MjrRect(inset, 0, max(1, width - inset), height)
-        if hud:
-            self._overlay(area, status, flash, setup, corner)
+        above = self._overlay(area, status, flash, setup) if hud else 0
+        if corner:  # above the timeline, if any
+            raised = mujoco.MjrRect(area.left, above, area.width, area.height - above)
+            mujoco.mjr_overlay(
+                mujoco.mjtFont.mjFONT_NORMAL,
+                mujoco.mjtGridPos.mjGRID_BOTTOMRIGHT,
+                raised,
+                _ascii(corner),
+                "",
+                context,
+            )
         if message:
             mujoco.mjr_overlay(
                 mujoco.mjtFont.mjFONT_NORMAL,
@@ -323,9 +332,11 @@ class SceneRenderer:
         status: str,
         flash: str,
         setup: bool,
-        corner: str,
-    ) -> None:
-        """The text corners and the timeline; the middle stays clear."""
+    ) -> int:
+        """The text corners and the timeline; the middle stays clear.
+
+        Returns the height the timeline takes at the bottom.
+        """
         context = self._context
         normal, big = mujoco.mjtFont.mjFONT_NORMAL, mujoco.mjtFont.mjFONT_BIG
         grid = mujoco.mjtGridPos
@@ -336,10 +347,6 @@ class SceneRenderer:
         if status:
             mujoco.mjr_overlay(
                 normal, grid.mjGRID_BOTTOMLEFT, raised, _ascii(status), "", context
-            )
-        if corner:
-            mujoco.mjr_overlay(
-                normal, grid.mjGRID_BOTTOMRIGHT, raised, _ascii(corner), "", context
             )
         if flash:  # above the playback line, which can reach the middle
             lift = above + 2 * context.charHeight
@@ -360,6 +367,7 @@ class SceneRenderer:
                 "",
                 context,
             )
+        return above
 
     def _timeline(self, area: mujoco.MjrRect) -> int:
         """Draw the timeline along the area's bottom; return the height it takes."""

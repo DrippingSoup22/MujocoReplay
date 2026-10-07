@@ -163,7 +163,8 @@ all; the rule asked for by the user on 2026-10-07 replaced the first design's
 values, so that every band holds a world to draw. `--worlds N` sets the count
 (16 by default) and `--ids 3,7,9` draws exactly those `world_ids` instead; the
 two exclude each other, and an `--ids` list that matches no world of a file is
-an error naming the file. The highlighted world starts as rank 0; a key moves
+an error naming the file; while `--ids` holds, the panel names the worlds as
+chosen by id instead of offering the count. The highlighted world starts as rank 0; a key moves
 the highlight through the drawn worlds in rank order, so each ghost can be
 inspected in colour.
 
@@ -330,7 +331,10 @@ buffer grows with `mjr_resizeOffscreen` when the window does.
 The frame-rate readout, a switch of the panel, shows how long a frame takes
 to draw and the frame rate that allows (`draw 12.3 ms | up to 81 frames/s`):
 while it is on, each frame waits for the graphics card (`mjr_finish`) so that
-the time is the card's, not only the program's. The window draws only when
+the time is the card's, not only the program's. It shows with the overlay
+hidden too, and starts measuring again when the graphics or the scene change,
+drawing once more at once so that a paused window shows the new time. The
+window draws only when
 something changed: a frame passed, the camera or a setting moved, a message
 came or went. Between such moments the main loop sleeps in
 `glfw.wait_events_timeout` until the next frame is due
@@ -348,7 +352,9 @@ which prints the chosen paths: that keeps tkinter's event loop apart from
 GLFW's, and the window keeps drawing while the picker is open; where tkinter
 is missing, a message says so and points to dropping. A file that cannot be
 read or composed is reported as a message at the top of the window, and the
-window goes on showing what it showed.
+window goes on showing what it showed; a later file of a playlist whose model
+fails is left out of the playlist, and playback goes back, paused, to the
+frame shown before.
 
 The side panel, on the left, is drawn with MuJoCo's own overlay functions
 (`mjr_rectangle`, `mjr_label`), so the viewer needs nothing beyond MuJoCo and
@@ -363,13 +369,16 @@ wheel scrolls the panel when the cursor is over it. A click's position is the
 one the cursor callback recorded in event order: asking GLFW for the cursor
 at the click would give where it is after the events still queued, so on a
 slow card a quick second click would land the first one too; driving the
-window found that.
+window found that. For the same reason the panel is laid out again right
+after each action, so that a click queued behind Tab does not meet the
+hidden panel.
 
 The settings (the graphics, the number of worlds, the cache, the frame-rate
 readout, the panel, and the overlay) are saved as JSON in the user's settings
 folder (`%APPDATA%\MujocoReplay` on Windows, `~/.config/mujoco-replay` on
 Linux) whenever they change, and read at the next start; a missing or
-damaged file, or a wrong value, gives the default for that value. The first
+damaged file, or a wrong value, gives the default for that value, and a
+byte-order mark, which some Windows editors write, is accepted. The first
 start is in Performance mode with 16 worlds.
 
 Composed scenes are cached in the user's cache folder (`%LOCALAPPDATA%` or
@@ -419,7 +428,9 @@ mujoco-replay render FILE [FILE ...] --out PATH [--fps 30] [--speed SECONDS]
 the window opens on the empty world. `python -m mujoco_replay` is the same
 command. The saved settings supply what the command line leaves out; `--mode`
 and `--worlds` given to `view` are remembered, as the panel's changes are, and
-`--no-hud` hides the overlay for this run. `render` always draws with the
+`--no-hud` hides the overlay for this run only: it is not saved, and a video
+carries the overlay unless `render` is given `--no-hud`, whatever the
+viewer's switch. `render` always draws with the
 Quality graphics. Both subcommands draw at 1280 × 720 unless told otherwise, read and
 check every file before opening anything (the checks that need a later file's
 model come when playback reaches it), and exit with status 1 and a one-line

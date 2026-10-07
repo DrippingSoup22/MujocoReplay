@@ -93,7 +93,7 @@ def settings_path() -> Path:
 def load_settings(path: Path | None = None) -> Settings:
     """The saved settings, with the default wherever a value is missing or wrong."""
     try:
-        saved = json.loads((path or settings_path()).read_text(encoding="utf-8"))
+        saved = json.loads((path or settings_path()).read_text(encoding="utf-8-sig"))
     except (OSError, ValueError):
         return Settings()
     if not isinstance(saved, dict):

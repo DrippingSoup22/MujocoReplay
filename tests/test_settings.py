@@ -42,3 +42,10 @@ def test_a_wrong_value_falls_back_to_its_default_alone(tmp_path):
     assert (settings.worlds, settings.cache, settings.frame_rate) == (16, True, True)
     assert settings.graphics.resolution == PERFORMANCE.resolution
     assert settings.graphics.shadows
+
+
+def test_a_file_that_starts_with_a_byte_order_mark_is_read(tmp_path):
+    path = tmp_path / "settings.json"  # as Windows PowerShell 5.1 writes UTF-8
+    path.write_text(json.dumps({"worlds": 32}), encoding="utf-8-sig")
+
+    assert load_settings(path).worlds == 32

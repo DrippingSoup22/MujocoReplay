@@ -232,8 +232,8 @@ a recording already does, so nothing is loaded separately.
 
 **Result (2026-10-07):** built; the user's check on the MX330 is pending. The
 count rule, the settings and presets, the cache, the panel, both presets
-drawing, the scaled window drawing, and dropped files each have tests (49 in
-all; the 8 that draw skip without OpenGL). Centipede's repository was cloned
+drawing, the scaled window drawing, and dropped files each have tests (54 in
+all; the 12 that draw skip without OpenGL). Centipede's repository was cloned
 read-only as the sibling folder, so the scene test with its model now runs,
 and a stand-in recording was simulated from that model with targets placed as
 Centipede places them. Measured in the container's software renderer, fine
@@ -242,7 +242,18 @@ with reflections twice; the cache turned 0.76 s of composing 32 copies into
 13 ms. Driving the window through the panel found one fault, fixed: a click
 made while a frame was drawing landed where the next click did. The file
 picker could not be tried, as the container's Python has no tkinter.
-`docs/design.md` describes the graphics, the application, and the cache.
+A second independent review then found eleven defects, each reproduced and
+fixed: stepping back into a file that needed composing crashed; a later file
+whose model failed closed the window; the end of a file without an event left
+the last frame undrawn; changing the count while playing skipped the
+composing time; with `--ids` the count stepper composed again for nothing and
+saved a count; `--no-hud` was saved with the next change, and `render`
+followed the viewer's overlay switch instead of `--no-hud`; the frame-rate
+readout lagged a graphics change and vanished with the overlay; "fewer"
+skipped a step from a count between steps; a settings file starting with a
+byte-order mark was ignored; and a click queued behind Tab acted on the
+hidden panel. `docs/design.md` describes the graphics, the application, and
+the cache.
 
 ## Status
 

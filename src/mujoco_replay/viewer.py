@@ -9,13 +9,12 @@ next to nothing. GLFW opens the window and delivers the input; only the
 ``view`` command imports this module. docs/design.md lists the keys.
 """
 
-import bisect
 import math
 import subprocess
 import sys
 import time
 from collections import deque
-from dataclasses import replace
+from dataclasses import fields, replace
 
 import glfw
 import mujoco
@@ -96,11 +95,13 @@ def run(
     seconds_per_frame: float = DEFAULT_SECONDS_PER_FRAME,
     ids: list[int] | None = None,
     size: tuple[int, int] = (1280, 720),
+    hud: bool = True,
 ) -> None:
     """Open the window, with ``recordings`` if any, until it is closed.
 
     ``ids``, when given, are the producer world ids to draw instead of the
     best of each rank band; the caller has checked that each file has some.
+    ``hud`` off hides the overlay for this run without saving that.
     """
     if not glfw.init():
         raise RuntimeError("GLFW cannot start: the window needs a display")
@@ -111,7 +112,7 @@ def run(
             raise RuntimeError("GLFW cannot open a window with OpenGL")
         glfw.make_context_current(window)
         glfw.swap_interval(1)
-        viewer = Viewer(window, settings, seconds_per_frame)
+        viewer = Viewer(window, settings, seconds_per_frame, hud)
         if recordings:
             viewer.load(recordings, ids)
         viewer.loop()
@@ -157,9 +158,16 @@ class FilePicker:
 class Viewer:
     """The state of the window: files, playback, scene, renderer, and panel."""
 
-    def __init__(self, window, settings: Settings, seconds_per_frame: float) -> None:
+    def __init__(
+        self,
+        window,
+        settings: Settings,
+        seconds_per_frame: float,
+        hud: bool = True,
+    ) -> None:
         self.window = window
-        self.settings = settings
+        self.settings = settings if hud else replace(settings, overlay=False)
+        self._saved = settings  # what is saved: the run's own choices left out
         self.seconds_per_frame = seconds_per_frame
         self.recordings: list[Recording] = []
         self.worlds: list[np.ndarray] = []
@@ -203,12 +211,11 @@ class Viewer:
             self._take_files()
             now = time.monotonic()
             if self.playback is not None:
-                before = (self.playback.file_index, self.playback.frame_index)
+                before = self._position()
                 self._passed += self.playback.advance(now)
                 if self.playback.file_index != self._shown_file:
                     self._show_file()
-                after = (self.playback.file_index, self.playback.frame_index)
-                self._dirty |= after != before
+                self._dirty |= self._position() != before
             if self._passed:  # timed from now, so that composing cannot eat it
                 self._flash = "  ".join(self._passed)
                 self._flash_until = time.monotonic() + FLASH_SECONDS
@@ -256,8 +263,10 @@ class Viewer:
         line = context.charHeight
         inset = ui.Panel.width(line) if self.settings.panel else 6 * line
         loaded = self.playback is not None
-        if loaded:
+        # While the next file is composed, the scene still shows the last one.
+        if loaded and self._shown_file == self.playback.file_index:
             self.scene.set_frame(self.playback.frame_index)
+        rate, first = self._rate(), not self._draw_seconds
         start = time.perf_counter()
         self.renderer.render(
             width,
@@ -266,29 +275,34 @@ class Viewer:
             flash=self._flash,
             hud=loaded and self.settings.overlay,
             setup=loaded and self.setup,
-            corner=self._rate(),
+            corner=rate,
             inset=inset,
             message=self._message,
             hint="" if loaded else "Open recordings (O), or drop .npz files here",
         )
         hover = self._pixels(*self._cursor)
+        self.boxes = self._layout()
+        self.panel.draw(self.boxes, height, context, hover, self.settings.panel)
+        if self.settings.frame_rate:  # wait for the graphics card, to time it
+            mujoco.mjr_finish()
+            self._draw_seconds.append(time.perf_counter() - start)
+            self._dirty |= first  # show the first time at once, even paused
+        glfw.swap_buffers(self.window)
+
+    def _layout(self) -> list[ui.Box]:
+        """The panel's boxes as things stand, or the button that shows it."""
+        height = glfw.get_framebuffer_size(self.window)[1]
+        context = self.renderer.context
+        line = context.charHeight
         if self.settings.panel:
 
             def measure(text: str) -> int:
                 return ui.text_width(context, text)
 
-            self.boxes = self.panel.layout(self._rows(), height, line, measure)
-            self.panel.draw(self.boxes, height, context, hover)
-        else:
-            row = line + line // 2
-            top = height - line // 2 - row
-            button = ui.Box(line // 2, top, 5 * line, row, "button", "Panel", "panel")
-            self.boxes = [button]
-            self.panel.draw(self.boxes, height, context, hover, background=False)
-        if self.settings.frame_rate:  # wait for the graphics card, to time it
-            mujoco.mjr_finish()
-            self._draw_seconds.append(time.perf_counter() - start)
-        glfw.swap_buffers(self.window)
+            return self.panel.layout(self._rows(), height, line, measure)
+        row = line + line // 2
+        top = height - line // 2 - row
+        return [ui.Box(line // 2, top, 5 * line, row, "button", "Panel", "panel")]
 
     def _rows(self) -> list[ui.Row]:
         """The panel as it stands, top to bottom."""
@@ -317,7 +331,11 @@ class Viewer:
             shown = str(settings.worlds)
         else:
             shown = f"{len(self.scene.worlds)} of {self.scene.recording.world_count}"
-        rows += [ui.Section("Worlds"), ui.Stepper("Shown", shown, "fewer", "more")]
+        rows.append(ui.Section("Worlds"))
+        if self.ids is None:
+            rows.append(ui.Stepper("Shown", shown, "fewer", "more"))
+        else:  # the worlds named on the command line, whatever the count
+            rows.append(ui.Note(f"Shown: {shown}, chosen by id"))
         if playback is not None:
             rank = f"rank {self._rank() + 1}"
             rows += [
@@ -414,14 +432,23 @@ class Viewer:
 
     def _act(self, action: str) -> None:
         self._actions[action]()
+        # Clicks still queued must meet the panel as it now is, not as drawn.
+        self.boxes = self._layout()
         self._dirty = True
 
     def _change(self, settings: Settings) -> None:
         """Take new settings: save them, and redraw or recompose as they need."""
         previous, self.settings = self.settings, settings
-        save_settings(settings)
+        changed = {
+            item.name: getattr(settings, item.name)
+            for item in fields(Settings)
+            if getattr(settings, item.name) != getattr(previous, item.name)
+        }
+        self._saved = replace(self._saved, **changed)
+        save_settings(self._saved)
         if settings.graphics != previous.graphics:
             self.renderer.set_graphics(settings.graphics)
+            self._draw_seconds.clear()
         if settings.worlds != previous.worlds and self.playback is not None:
             self._recompose()
         if settings.frame_rate != previous.frame_rate:
@@ -437,9 +464,12 @@ class Viewer:
         total = self.scene.recording.world_count if self.playback else MAX_WORLDS
         counts = world_counts(total)
         current = min(self.settings.worlds, counts[-1])
-        index = max(0, bisect.bisect_right(counts, current) - 1) + direction
-        if 0 <= index < len(counts) and counts[index] != current:
-            self._change(replace(self.settings, worlds=counts[index]))
+        if direction < 0:
+            chosen = [count for count in counts if count < current][-1:]
+        else:
+            chosen = [count for count in counts if count > current][:1]
+        if chosen:
+            self._change(replace(self.settings, worlds=chosen[0]))
 
     def _recompose(self) -> None:
         """Choose and compose the worlds again after the count changed."""
@@ -454,9 +484,14 @@ class Viewer:
         scene = ComposedScene(self.recordings[index], self.worlds[index], self._cache())
         self._use(scene, reframe=False, world_id=world_id)
         self._message = ""
+        self.playback.sync(time.monotonic())  # composing may have taken a while
 
     def _show_file(self) -> None:
-        """Show the playlist's current file, keeping the highlighted world."""
+        """Show the playlist's current file, keeping the highlighted world.
+
+        A file whose model fails is left out of the playlist, and playback
+        goes back, paused, to the frame shown before.
+        """
         index = self.playback.file_index
         recording, worlds = self.recordings[index], self.worlds[index]
         previous = self.scene
@@ -466,7 +501,18 @@ class Viewer:
             self._use(previous, reframe=False, world_id=world_id)
         else:
             self._say_now(f"Composing {len(worlds)} worlds ...")
-            scene = ComposedScene(recording, worlds, self._cache())
+            try:
+                scene = ComposedScene(recording, worlds, self._cache())
+            except RecordingError as error:
+                del self.recordings[index]  # the playback's playlist too
+                del self.worlds[index]
+                if index < self._shown_file:
+                    self._shown_file -= 1
+                self.playback.file_index = self._shown_file
+                self.playback.frame_index = previous.frame_index
+                self.playback.playing = False
+                self._say(f"{error} (left out of the playlist)")
+                return
             self._use(scene, reframe=True, world_id=world_id)
             self._message = ""
         self.playback.sync(time.monotonic())  # composing may have taken a while
@@ -486,7 +532,13 @@ class Viewer:
         self._shown_file = self.playback.file_index
         title = f"MujocoReplay - {scene.recording.title}"
         glfw.set_window_title(self.window, title)
+        self._draw_seconds.clear()  # another scene costs another time
         self._dirty = True
+
+    def _position(self) -> tuple[int, int, bool]:
+        """What the drawing shows of playback: the file, the frame, any pause."""
+        playback = self.playback
+        return playback.file_index, playback.frame_index, playback.playing
 
     def _highlight(self, direction: int) -> None:
         if self.playback is not None:
@@ -636,6 +688,7 @@ class Viewer:
         over_panel = self._pixels(*self._cursor)[0] < self._panel_width()
         if self.settings.panel and over_panel:
             self.panel.scroll_by(round(-2 * self.renderer.context.charHeight * y))
+            self.boxes = self._layout()
         else:
             self.renderer.move_camera(mujoco.mjtMouse.mjMOUSE_ZOOM, 0.0, -0.05 * y)
         self._dirty = True

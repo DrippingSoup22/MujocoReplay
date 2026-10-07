@@ -35,8 +35,6 @@ def main(arguments: list[str] | None = None) -> int:
         if options.worlds:
             settings = replace(settings, worlds=options.worlds)
         save_settings(settings)  # remembered, as changes in the panel are
-    if options.no_hud:
-        settings = replace(settings, overlay=False)
     count = options.worlds or settings.worlds
     size = (options.width or 1280, options.height or 720)
     try:
@@ -48,7 +46,14 @@ def main(arguments: list[str] | None = None) -> int:
         if options.command == "view":
             from mujoco_replay import viewer
 
-            viewer.run(recordings, settings, options.speed, options.ids, size)
+            viewer.run(
+                recordings,
+                settings,
+                options.speed,
+                options.ids,
+                size,
+                hud=not options.no_hud,
+            )
             return 0
         try:
             from mujoco_replay import video
@@ -66,7 +71,7 @@ def main(arguments: list[str] | None = None) -> int:
             options.speed,
             options.fps,
             size,
-            hud=settings.overlay,
+            hud=not options.no_hud,
             progress=_report_progress,
             cache=user_folder("cache") if settings.cache else None,
         )
