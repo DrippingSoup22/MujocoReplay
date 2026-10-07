@@ -5,8 +5,12 @@
 - Read this file, then `README.md`, `plan.md`, `docs/recording-format.md`, and
   `docs/design.md` before changing anything.
 - The sibling `../Centipede` project produces the recordings this tool replays
-  and depends on this package for writing them. Read its `AGENTS.md` before
-  touching it. Ignore the sibling `../backup` folder entirely.
+  and depends on this package for writing them. It is reference only: the
+  user works on it in sessions of its own, and nothing in it is changed from
+  here (the user decided this on 2026-10-07). When something there needs
+  changing, write a Markdown handoff file for the user to pass on to those
+  sessions, outside this repository, and send it to the user. Ignore the
+  sibling `../backup` folder entirely.
 
 ## Scope and boundaries
 
