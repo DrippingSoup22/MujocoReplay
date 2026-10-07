@@ -46,6 +46,7 @@ blob anyway.
 | `viewer.py` | The application: the window, the empty world, opening files, the panel's actions, the keys and the mouse, the main loop that draws only on change | GLFW, MuJoCo, NumPy; imported only by the `view` command |
 | `video.py` | Offscreen rendering of a playlist to an MP4 | `imageio`, `imageio-ffmpeg`, MuJoCo, NumPy; imported only by the `render` command, so a missing `video` extra fails before any work |
 | `cli.py`, `__main__.py` | The `mujoco-replay` command and `python -m mujoco_replay` | argparse, NumPy; the window and video modules inside the commands |
+| `launcher.py` | The `MujocoReplay` program: the command without a console window, its failures shown in a message box | The standard library; the command inside `main` |
 
 `recording` and `selection` are the producer-facing half: Centipede imports
 them to write files. They must stay free of MuJoCo and graphics imports, and a
@@ -557,6 +558,40 @@ cannot be written; `render` names a missing `video` extra the same way,
 refuses an output folder that does not exist before any work, and reports
 its progress on the error stream. Options may come before or after the
 files, and sizes are at least 16 pixels.
+
+## The program
+
+The `gui-scripts` entry of `pyproject.toml` makes pip install a program,
+`MujocoReplay`, beside the command: on Windows, `MujocoReplay.exe` in the
+environment's `Scripts` folder, which runs `pythonw`, Python without a
+console window, so that the tool starts from the Start menu, the taskbar, or
+a desktop shortcut like any application. The program runs the command
+(`launcher.main` calls `cli.main`, which reads the program's arguments): it
+opens the empty world, or the files dropped onto the program or its
+shortcut, which Windows passes as arguments, with the same saved settings.
+Having no code of its own beyond that, it follows every change to the
+command and the viewer, and with the editable install a pull is enough; only
+a change to the entry points or the dependencies needs `pip install` again.
+`pythonw -m mujoco_replay.launcher` runs the same program without the
+`.exe`.
+
+Without a console, `sys.stderr` is `None`, and what the command prints when
+it fails (a file it cannot read, a missing OpenGL, a wrong option, or a
+traceback) would go nowhere. The program keeps the error stream in memory
+instead, and when the command fails, it shows the last 40 lines in a message
+box: Windows' own `MessageBoxW`, through `ctypes`, so no library is needed.
+What the window reports itself, such as a file opened from the panel that
+cannot be read, stays a message in the window. With a console, as on Linux
+or when started from a terminal, the program is the command itself. A
+failure before the program's own code runs, such as this folder moved away
+from where the editable install points, shows nothing; `mujoco-replay`, run
+in a terminal, prints it.
+
+The program's current folder is the one its shortcut starts in, by default
+the `Scripts` folder, where MuJoCo appends its warnings to `MUJOCO_LOG.TXT`.
+The process that draws is the base Python's `pythonw.exe`, which the
+environment's own `pythonw.exe` starts, so that is the one Windows' graphics
+settings must send to the GeForce.
 
 ## Dependencies
 

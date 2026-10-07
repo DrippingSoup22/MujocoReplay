@@ -31,6 +31,10 @@ dev = [
 [project.scripts]
 mujoco-replay = "mujoco_replay.cli:main"
 
+# The same window without a console window: MujocoReplay.exe on Windows.
+[project.gui-scripts]
+MujocoReplay = "mujoco_replay.launcher:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

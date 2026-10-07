@@ -1,8 +1,9 @@
 # Development plan
 
-This plan builds MujocoReplay in seven stages; the user asked for the sixth on
-2026-10-07, once the first five were built, and for the seventh, a full
-review, once the sixth was. It is paired with Stage 7 of the
+This plan builds MujocoReplay in eight stages; the user asked for the sixth on
+2026-10-07, once the first five were built, for the seventh, a full review,
+once the sixth was, and for the eighth, a program to start it from, once the
+seventh was. It is paired with Stage 7 of the
 sibling `Centipede` project (`../Centipede/plan.md`), which records the files
 this tool replays. The format is fixed in
 [docs/recording-format.md](docs/recording-format.md) and the design in
@@ -320,6 +321,30 @@ user kept reflections in Quality, which the performance review had taken
 out, and asked for a question before quitting, which Q, Esc, and the
 window's close button now ask, in a small box drawn in the window.
 
+### R8 — The program
+
+Asked by the user on 2026-10-07, after R7: start the tool like an
+application, without a terminal, on the empty world, and add the files from
+there. A standalone executable, which would not need Python installed, is
+left for later.
+
+**Builds:** a `gui-scripts` entry that makes pip install `MujocoReplay` (on
+Windows `MujocoReplay.exe`, which runs Python without a console window), and
+`launcher.py` behind it, which runs the `mujoco-replay` command with the
+program's arguments and, without a console, shows the command's failure in
+a message box. The command and the viewer stay as they are: the user tries
+them first.
+
+**Done when:** the program opens the same window as the command, empty or
+with the files given; a failure without a console reaches the message box;
+tests hold both; and the README says how to pin the program.
+
+**Result (2026-10-07):** built. In the container, with the error stream
+taken away as `pythonw` has it, the program opened the empty world and a
+recording given to it, and an unreadable file and a missing display each
+ended in the text the message box would show. The message box and
+`MujocoReplay.exe` exist only on Windows, so the user checks them.
+
 ## Status
 
 | Stage | Status |
@@ -331,3 +356,4 @@ window's close button now ask, in a small box drawn in the window.
 | R5 — Documents and status | Complete (2026-10-07); Centipede's README and architecture document now point here |
 | R6 — The application: panel, settings, and performance | Built (2026-10-07); the user's check on the MX330 pending |
 | R7 — Full review | Done (2026-10-07); the user's check on the MX330, with Centipede's own recordings, pending |
+| R8 — The program | Built (2026-10-07); the user's check on Windows pending |

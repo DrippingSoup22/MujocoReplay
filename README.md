@@ -15,6 +15,13 @@ overlay shows the facts of the run. The same scene can be rendered to a video.
 
 ## Status
 
+**Stage R8, a program to start it from, built (2026-10-07):** the install
+also makes `MujocoReplay`, which opens the window without a console window,
+to start from the Start menu, the taskbar, or the desktop (see Use). It runs
+the `mujoco-replay` command, unchanged, and says in a message box why it
+cannot start, if it cannot. `MujocoReplay.exe` awaits the user's check on
+Windows.
+
 **Stage R7, a full review, done (2026-10-07):** five independent reviews and
 a visual one went through the whole application, and their findings are
 fixed: damaged and half-written files, unusual models, a diverged world, the
@@ -45,7 +52,7 @@ recordings.
 ```text
 MujocoReplay/
 ├─ docs/                Format and design documents
-├─ src/mujoco_replay/   The package: recording format, selection, scene, playback, renderer, settings, panel, viewer, video
+├─ src/mujoco_replay/   The package: recording format, selection, scene, playback, renderer, settings, panel, viewer, video, command, program
 ├─ tests/               Automated tests, one file per module; shared helpers in conftest.py
 └─ archive/             Superseded material; local only
 ```
@@ -70,9 +77,16 @@ window: OpenGL through WSL is unreliable on this machine.
 
 On a laptop with two graphics chips, Windows may run Python on the
 processor's own chip instead of the GeForce. To use the GeForce, open
-Settings, System, Display, Graphics, add the base Python's `python.exe` (an
-environment's `python.exe` starts it), and choose High performance; the
-frame-rate readout shows the difference.
+Settings, System, Display, Graphics, add the base Python's `python.exe`, and
+for the program (see Use) its `pythonw.exe` from the same folder, and choose
+High performance for each: an environment's own `python.exe` and
+`pythonw.exe` only start these. This prints where the base `python.exe` is:
+
+```powershell
+python -c "import sys; print(sys._base_executable)"
+```
+
+The frame-rate readout shows the difference.
 
 The tests that draw need OpenGL; without it they skip and say why. On a Linux
 machine without a display, `xvfb-run -a python -m pytest` runs them on a
@@ -104,3 +118,15 @@ pauses, the arrows step and change speed, a double-click highlights a world,
 a click on the timeline jumps there, V resets the view, F1 lists every key,
 and Q or Esc asks before quitting; [`docs/design.md`](docs/design.md) describes every key, option, and
 switch.
+
+The install also makes `MujocoReplay`, a program that opens the same window
+without a console window: on Windows, `MujocoReplay.exe` in the
+environment's `Scripts` folder (`$HOME\.venvs\Centipede\Scripts` for the
+shared environment above). In File Explorer, right-click it and choose Pin
+to Start, or Send to, Desktop (create shortcut), which Windows 11 lists
+under Show more options. It opens the empty world, or the files dropped onto
+it or onto its shortcut, with the same remembered settings. It runs this
+folder's code, so a pull needs no new install; only a change to
+`pyproject.toml` needs the `pip install` again, with the window closed. When
+it cannot start, a message box says why; if nothing appears at all, run
+`mujoco-replay` in the terminal, which prints the reason.
