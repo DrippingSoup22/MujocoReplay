@@ -49,6 +49,9 @@ Optional keys:
 | `score_name` | str, scalar | `"score"` | What the score is, for the overlay |
 | `world_ids` | int64, `(K,)` | `0 … K−1` | The producer's index of each world |
 | `level` | int64, `(K,)` | none | Each world's level, `1` for the best band, as `selected_ranks` assigns them (see below). Shown in the overlay when present |
+| `level_count` | int64, scalar | none | How many levels the producer's worlds were split into, so that the overlay can say "level 2 of 4" even when the file lacks the last level; needs `level` |
+| `rank` | int64, `(K,)` | none | Each world's rank among all the worlds the producer ranked, `1` for the best, when the file holds a selection of them. The overlay and the panel show it instead of the rank within the file |
+| `ranked_worlds` | int64, scalar | none | How many worlds the producer ranked; comes with `rank` |
 | `episode_start` | bool, `(T, K)` | all false | True at frames where that world's episode began, so the frame shows a freshly reset pose. The first frame need not be flagged |
 | `marker_names` | str, `(M,)` | none | Names of per-world points to draw, such as a target |
 | `marker_positions` | float32, `(T, K, M, 3)` | none | Each marker's world position at each frame, in metres |
@@ -65,13 +68,21 @@ Rules:
 - `qpos` uses the layout of the model compiled from `model_xml`.
 - Joints that are not inside a replicated body, such as a moving obstacle in
   the static scene, take their values from the highlighted world's row.
-- Marker, event, and info keys come in groups: a group is either complete or
-  absent.
-- Shapes must agree with each other; `qpos` holds at least one frame and one
-  world; `frame_seconds` is positive; event frames lie in `[0, T]`; levels are
-  at least `1`; `replicated_bodies` names each body once; `setup_json` parses
-  as a JSON object. The reader rejects anything else with an error naming the file and
-  the key.
+- Marker, event, info, and rank keys come in groups: a group is either
+  complete or absent.
+- Each key holds the kind of values the tables give (whole numbers for ids,
+  levels, ranks, and event frames; numbers, true or false, or text) with the
+  number of dimensions its shape gives; shapes must agree with each other.
+- `qpos` holds at least one frame and one world; `frame_seconds` is finite and
+  at least `1e-6`; event frames lie in `[0, T]`; levels are at least `1` and
+  at most `level_count`; ranks lie in `[1, ranked_worlds]`, one per world, and
+  `ranked_worlds` is at least `K`; `replicated_bodies` names each body once;
+  `setup_json` parses as a JSON object nested at most 32 levels deep.
+- The reader rejects anything else with an error naming the file and the key,
+  and a damaged or half-written file as one that cannot be read. Keys it does
+  not know are ignored, so that a file from a newer producer still opens.
+- Positions that are not finite, as a diverging simulation leaves them, are
+  accepted: such a world is not drawn, and the camera does not follow it.
 - The checks that need the model are made when the scene is composed:
   `model_xml` must parse and compile, its `nq` must match `qpos`, and
   `replicated_bodies` must name root bodies of the model. The error names the
@@ -91,7 +102,11 @@ and at the scene composition, and the tool's own modules trust each other.
   filled in, and `frame_count`, `world_count`, and `position_count` properties.
 - `write_recording(path, recording)`: writes the file with `numpy.savez`
   (uncompressed; floating-point poses compress poorly, and the file stays
-  simple to read partially).
+  simple to read partially), under a temporary name first and then renamed, so
+  that a viewer opening the newest file never finds it half written. NumPy
+  numbers and arrays in the setup are written as plain numbers and lists, and
+  anything else JSON cannot hold, such as a path, as text. A `Recording` given
+  part of a group raises `ValueError` when it is made.
 - `read_recording(path) -> Recording`: reads and checks the file.
 
 Importing `mujoco_replay.recording` or `mujoco_replay.selection` imports only
@@ -110,8 +125,9 @@ exists:
   are fewer worlds than levels.
 - From each band, `per_level` ranks are taken evenly spaced from the band's
   first to its last rank, both included (`first + round(j·(n−1)/(per_level−1))`
-  for `j = 0 … per_level−1`; with `per_level = 1` only the first). The best
-  world and the worst world are therefore always selected.
+  for `j = 0 … per_level−1`; with `per_level = 1` only the first). With
+  `per_level` of 2 or more, the best world and the worst world are therefore
+  always selected; with 1, each band's best, which is what the viewer draws.
 - The result is the sorted list of selected ranks and each one's level, `1`
   for the first band. A producer orders its worlds by score, descending and
   stable, and keeps the worlds at those ranks.
@@ -122,8 +138,8 @@ from each world's rank among all its worlds.
 
 ## What Centipede writes
 
-Centipede records training windows and evaluation episodes; its `plan.md` and
-`docs/configuration.md` describe the settings. Its files follow these
+Centipede records training windows and evaluation episodes; its
+`docs/configuration.md` describes the settings. Its files follow these
 conventions, which are not part of the format:
 
 | Item | Training window | Evaluation |
@@ -133,7 +149,7 @@ conventions, which are not part of the format:
 | `score` | Sum of every segment's rewards over the window (`score_name = "summed reward"`) | The same, over the recording |
 | Markers | `target`: the head's target, drawn on the ground with the arrival radius | The same |
 | `frame_info` | `updates` (done so far) and `steps per world` (collected so far) | none |
-| Events | `update NNNN` at frame `T` | none |
+| Events | `update N` at frame `T` | none |
 | `setup_json` | The run's complete configuration, the cycle, the device, the code version | The checkpoint, seed, actor, and configuration |
 
 ## Size

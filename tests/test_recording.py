@@ -6,6 +6,7 @@ import pytest
 from mujoco_replay.recording import (
     Recording,
     RecordingError,
+    in_name_order,
     read_recording,
     write_recording,
 )
@@ -41,6 +42,9 @@ def full_recording() -> Recording:
         event_labels=("update 2",),
         title="probe · cycle 2 of 3",
         setup={"run": {"seed": 1}, "device": "cpu"},
+        level_count=4,
+        rank=[1, 37],
+        ranked_worlds=1024,
     )
 
 
@@ -61,6 +65,7 @@ def test_a_full_recording_survives_a_round_trip(tmp_path):
         "marker_radius",
         "frame_info",
         "event_frames",
+        "rank",
     ):
         assert np.array_equal(getattr(loaded, name), getattr(original, name)), name
         assert getattr(loaded, name).dtype == getattr(original, name).dtype, name
@@ -75,6 +80,8 @@ def test_a_full_recording_survives_a_round_trip(tmp_path):
         "event_labels",
         "title",
         "setup",
+        "level_count",
+        "ranked_worlds",
     ):
         assert getattr(loaded, name) == getattr(original, name), name
     assert (loaded.frame_count, loaded.world_count, loaded.position_count) == (3, 2, 4)
@@ -112,6 +119,12 @@ def test_a_minimal_recording_reads_with_the_defaults(tmp_path):
         ({"frame_seconds": np.float64(0.0)}, "frame_seconds"),
         ({"qpos": np.zeros((0, 2, 4), dtype=np.float32)}, "qpos"),
         ({"replicated_bodies": np.array(["b", "b"])}, "replicated_bodies"),
+        ({"qpos": np.full((3, 2, 4), "x")}, "qpos"),
+        ({"world_ids": np.array([0.5, 1.5])}, "world_ids"),
+        ({"frame_seconds": np.float64(np.inf)}, "frame_seconds"),
+        ({"title": np.array(["two", "lines"])}, "title"),
+        ({"level_count": np.int64(4)}, "level_count"),
+        ({"rank": np.array([3, 3]), "ranked_worlds": np.int64(8)}, "rank"),
     ],
 )
 def test_a_file_that_breaks_the_format_is_rejected_by_key(tmp_path, change, key):
@@ -139,3 +152,34 @@ def test_a_missing_required_key_or_unreadable_file_is_rejected(tmp_path):
     not_a_zip.write_text("hello")
     with pytest.raises(RecordingError, match="cannot be read"):
         read_recording(not_a_zip)
+
+
+def test_a_half_written_file_is_rejected_as_unreadable(tmp_path):
+    whole, half = tmp_path / "whole.npz", tmp_path / "half.npz"
+    write_recording(whole, full_recording())
+    half.write_bytes(whole.read_bytes()[: whole.stat().st_size // 2])
+
+    with pytest.raises(RecordingError, match="half.npz cannot be read"):
+        read_recording(half)
+
+
+def test_the_writer_takes_numpy_values_and_refuses_half_a_group(tmp_path):
+    path = tmp_path / "numpy.npz"
+    setup = {"seed": np.int64(3), "rate": np.float32(0.5), "folder": tmp_path}
+
+    write_recording(path, Recording(MODEL, 0.5, np.zeros((1, 1, 4)), setup=setup))
+
+    assert read_recording(path).setup == {
+        "seed": 3,
+        "rate": 0.5,
+        "folder": str(tmp_path),
+    }
+    assert not list(tmp_path.glob("*.partial"))
+    with pytest.raises(ValueError, match="marker_positions is missing"):
+        Recording(MODEL, 0.5, np.zeros((1, 1, 4)), marker_names=("target",))
+
+
+def test_files_are_put_in_the_order_of_their_names_with_numbers_by_value():
+    names = ["cycle_10.npz", "cycle_2.npz", "Cycle_1.npz"]
+
+    assert in_name_order(names) == ["Cycle_1.npz", "cycle_2.npz", "cycle_10.npz"]

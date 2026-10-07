@@ -25,8 +25,9 @@ def selected_ranks(
     fit, every rank is kept. Otherwise the ranks are split into ``levels``
     bands of as equal a size as possible (band ``i`` starts at rank
     ``ceil(i * world_count / levels)``), and ``per_level`` ranks are taken
-    from each band, evenly spaced from its first to its last rank, so the best
-    and the worst world are always kept.
+    from each band, evenly spaced from its first to its last rank: with two
+    or more per level the best and the worst world are always kept, with one
+    each band's best.
     """
     if world_count <= levels * per_level:
         ranks = np.arange(world_count)
