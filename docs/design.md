@@ -1,0 +1,221 @@
+# Design
+
+MujocoReplay draws recorded positions of many worlds of one MuJoCo model in a
+single scene. It never simulates: it composes a model with one copy of the
+moving bodies per world, writes each world's recorded positions into its copy's
+joints frame by frame, computes the resulting body poses with MuJoCo's
+kinematics, and draws. Everything it knows about a run comes from the recording
+file described in [recording-format.md](recording-format.md).
+
+## Goals and limits
+
+- Any MuJoCo model, any number of worlds in the file; the tool chooses how many
+  to draw.
+- The best world in its natural colours, the others as faint grey ghosts, so
+  that the spread of behaviours is visible without hiding the best.
+- Slow by default: a person must be able to see each step. Playback pauses,
+  steps frame by frame, and runs from a few seconds per frame to faster than
+  real time.
+- A clean overlay with the facts of the run that never covers the bodies, and
+  can be hidden.
+- A free camera, driven with the mouse as in MuJoCo's own viewer.
+- A video of the same scene, from the same code, for presentations.
+
+Not goals: physics, editing, side-by-side scenes, or a graphical user
+interface beyond keys and the mouse. Drawing is bounded by legibility and the
+graphics card: with 64 shapes per copy, 128 copies are 8,192 shapes per frame,
+which a laptop draws smoothly; a thousand overlapping ghosts would be a grey
+blob anyway.
+
+## Modules
+
+| Module | Does | Imports at module level |
+| --- | --- | --- |
+| `recording.py` | The file format: `Recording`, `write_recording`, `read_recording` | NumPy |
+| `selection.py` | `selected_ranks` and `choose_worlds(recording, levels, per_level, world_ids=None, all_worlds=False)`: which of a file's worlds to draw, and in what rank order | NumPy |
+| `scene.py` | `ComposedScene`: the composite model, the joint mapping, colours, markers, and `set_frame(frame_index)` | MuJoCo, NumPy |
+| `playback.py` | `Playback`: the playlist, current frame, play/pause, speed presets, stepping, and which events were just passed; pure logic, no graphics | none |
+| `render.py` | `SceneRenderer`: the MuJoCo render context, camera, drawing of the scene, markers, overlay, timeline, and reading pixels back; works in a window or offscreen | MuJoCo, NumPy; GLFW inside functions |
+| `viewer.py` | The window: GLFW setup, mouse and key handling, the main loop | GLFW inside `run` |
+| `video.py` | Offscreen rendering of a playlist to an MP4 | `imageio` inside the function |
+| `cli.py`, `__main__.py` | The `mujoco-replay` command and `python -m mujoco_replay` | argparse |
+
+`recording` and `selection` are the producer-facing half: Centipede imports
+them to write files. They must stay free of MuJoCo and graphics imports.
+
+## Composing the scene
+
+Verified with MuJoCo 3.12.0 on 2026-10-07 against Centipede's model
+(69 position coordinates, one root body `segment_00` holding the whole
+centipede, 64 shapes, 55 actuators, a floor and one light in the world body):
+
+1. Parse the recording's `model_xml` with `mujoco.MjSpec.from_string(xml,
+   assets=...)`. The assets are the `asset/<name>` arrays as bytes. This spec
+   becomes the static scene: delete every actuator, sensor, tendon, equality
+   constraint, contact pair and exclusion, and keyframe (`spec.delete(item)`),
+   then delete every replicated body (`spec.delete(spec.body(name))`).
+   Actuators and the rest are not needed for drawing and would otherwise refer
+   to joints that no longer exist.
+2. For each drawn world `k`, parse the XML again into a fresh spec, delete the
+   same items, and attach each replicated body under a prefix:
+   `frame = spec.worldbody.add_frame(); frame.attach_body(source.body(name),
+   f"w{k}_", "")`. Attaching moves the body out of its source spec, so the
+   source must be re-parsed for every copy (the `copy_during_attach` flag was
+   not enough in the test). Names of bodies, joints, geoms, and sites in the
+   copy carry the prefix.
+3. Compile. In the test, two copies gave `nq = 138` and three gave `207`, with
+   copy `k`'s joints at a contiguous block starting at `k · nq`. Do not rely
+   on that: build the mapping by name. For each joint `j` of the original
+   compiled model and each copy `k`, read `composite.joint(f"w{k}_{name}")`
+   and its `qposadr` and `jnt_type`, and build an index array `(K, nq)` that
+   says where each original `qpos` entry goes. Joints of the static scene map
+   to their own addresses and take values from the highlighted world's row.
+4. `set_frame(t)` scatters `qpos[t, drawn_worlds]` through the index array
+   into `data.qpos`, then runs `mujoco.mj_kinematics` and `mujoco.mj_camlight`
+   (lights attached to bodies need the second call, or the scene is lit only
+   by the headlight). No `mj_forward`: no contacts, no dynamics.
+5. The scene (`mujoco.MjvScene`) is allocated with `maxgeom` of the composite
+   model's shapes plus the markers plus a margin.
+
+Colours: every geom of a ghost copy gets `geom_rgba = (0.55, 0.55, 0.55,
+0.15)` and `geom_matid = -1`, so that a material or texture cannot override
+the grey; the highlighted copy keeps the original model's `geom_rgba` and
+`geom_matid`, taken from the original compiled model by geom name. Both arrays
+are plain fields of `MjModel` and can be changed at any time, so the highlight
+can move from one world to another while playing. MuJoCo draws transparent
+shapes after opaque ones, so the highlighted world shows through the ghosts.
+The alpha value is a starting point to tune by eye; it may need to drop as
+more worlds are drawn.
+
+Markers: after `mjv_updateScene`, one sphere per drawn world and marker is
+added with `mjv_initGeom` into the scene's spare slots: the highlighted
+world's in a saturated colour, the ghosts' in the ghost grey. Markers can be
+hidden.
+
+## Choosing the worlds
+
+The file may hold more worlds than are drawn. The drawn set is chosen with
+`selected_ranks(K, levels, per_level)` over the file's `score`, descending and
+stable (`numpy.argsort(-score, kind="stable")`), with defaults of 4 levels and 8
+per level. Options widen or narrow this: `--levels`, `--per-level`, `--all`
+(draw every world), `--worlds 3,7,9` (explicit `world_ids`). The highlighted
+world starts as rank 0; a key moves the highlight through the drawn worlds in
+rank order, so each ghost can be inspected in colour.
+
+## Playback and keys
+
+`Playback` owns a playlist of recordings and a position: file index, frame
+index, playing or paused, and the speed as seconds of wall time per recorded
+frame. The default is 0.3 s per frame, so that a 20 ms step is visible as a
+step. The presets, in seconds per frame, are 3, 2, 1, 0.5, 0.3, 0.2, 0.1,
+0.05, then real time (`frame_seconds`), 2× and 4× real time; the overlay shows
+both the seconds per frame and the multiple of real time. Advancing uses wall
+time, so a slow renderer skips frames at fast speeds rather than slowing down.
+When a file ends, playback continues with the next file in the playlist and
+stops at the end of the last one. `Playback.advance(now)` returns the events
+whose frame was passed since the last call, so the overlay can flash them.
+
+| Key | Action |
+| --- | --- |
+| Space | Play or pause |
+| Right, Left | One frame forward or back; pauses |
+| Up, Down | Faster or slower, through the presets |
+| 0 | Back to the default speed |
+| Home, End | First or last frame of the file |
+| R | Restart the file |
+| N, P | Next or previous file in the playlist |
+| B, Shift+B | Highlight the next or previous drawn world, by rank |
+| G | Show or hide the ghosts |
+| M | Show or hide the markers |
+| H | Show or hide the overlay |
+| I | Show or hide the setup panel |
+| C | Centre the camera on the highlighted world |
+| F | Follow the highlighted world (tracking camera) on or off |
+| Esc, Q | Quit |
+
+Mouse, as in MuJoCo's `simulate`: left drag rotates, right drag pans, the
+wheel zooms, through `mujoco.mjv_moveCamera` with the standard action mapping.
+
+## Overlay
+
+Drawn with `mujoco.mjr_overlay` in two corners and with `mujoco.mjr_rectangle`
+for the timeline, in the normal font, so that the middle of the window stays
+clear:
+
+- Top left: the title; then one line per `frame_info` value at the current
+  frame (`updates 15 · steps per world 3,840`); then the highlighted world
+  (`world 512 · summed reward +1.23 · level 1 of 4`); then the drawn set
+  (`32 of 1,024 worlds drawn · 31 ghosts`).
+- Bottom left: the playback line (`frame 123 / 256 · 2.46 s · 0.3 s per frame
+  (0.07× real) · paused`).
+- Bottom: a thin timeline bar across the window, filled to the current frame,
+  with a tick per event and small ticks where the highlighted world's episodes
+  start. The event label is drawn above its tick.
+- Event flash: when playback passes an event, its label is drawn large at the
+  bottom centre for one second.
+- Setup panel (`I`): the `setup_json` object flattened to `key = value` lines,
+  drawn top right, as many as fit.
+
+The overlay is drawn in the same way into the window and into the offscreen
+buffer, so the video carries it unless `--no-hud` is given.
+
+## Camera
+
+A free camera (`mjCAMERA_FREE`) starts looking at the centre of the drawn
+bodies at frame 0, at a distance derived from their extent and the composite
+model's `stat.extent`, from a raised angle. `C` recentres on the highlighted
+world; `F` switches to a tracking camera (`mjCAMERA_TRACKING`) on the
+highlighted world's root body and back. The camera is independent of playback.
+
+## Rendering in a window and offscreen
+
+`SceneRenderer` wraps one `mujoco.MjrContext`, one `MjvScene`, `MjvCamera`,
+and `MjvOption`. The viewer creates a visible GLFW window and renders to its
+framebuffer; the video exporter creates a hidden GLFW window
+(`glfw.window_hint(glfw.VISIBLE, False)`), selects the offscreen buffer
+(`mjr_setBuffer(mjFB_OFFSCREEN)`), and reads pixels with `mjr_readPixels`
+(flipped vertically, as MuJoCo returns them bottom-up). The offscreen buffer's
+size comes from the model's `visual.global_.offwidth/offheight`, which the
+exporter sets on the spec before compiling. Window sizes use the framebuffer
+size, not the window size, so high-DPI screens render at full resolution.
+This is the same structure as MuJoCo's `basic` sample and the Python
+`mujoco.Renderer`; the tool keeps its own loop because the passive viewer
+offers no text overlay.
+
+## Video
+
+`mujoco-replay render FILES --out replay.mp4 [--width 1280 --height 720
+--fps 30 --speed 0.3 --no-hud]` plays the playlist at `--speed` seconds per
+recorded frame and writes `fps` video frames per second, so each recorded
+frame repeats for `speed × fps` video frames (9 at the defaults). Frames go to
+`imageio.get_writer` with the `ffmpeg` plugin from `imageio-ffmpeg`, which
+bundles its own encoder, so no system installation is needed. The `video`
+extra installs both; the viewer does not need them.
+
+## Command line
+
+```text
+mujoco-replay [view] FILE [FILE ...] [--levels 4] [--per-level 8] [--all]
+              [--worlds IDS] [--speed SECONDS] [--no-hud] [--width W] [--height H]
+mujoco-replay render FILE [FILE ...] --out PATH [--fps 30] [--speed SECONDS]
+              [--width 1280] [--height 720] [--levels 4] [--per-level 8]
+              [--all] [--worlds IDS] [--no-hud]
+```
+
+`view` is the default subcommand. `python -m mujoco_replay` is the same
+command.
+
+## Dependencies
+
+`mujoco==3.12.0` (the version the composition was verified with; the `glfw`
+package comes with it), `numpy`. Optional `video`: `imageio`,
+`imageio-ffmpeg`. Development: `pytest`, `ruff`. Python 3.11 or newer.
+
+## Verification without a display
+
+An assistant cannot drive the window. Rendering is verified by writing a few
+offscreen frames of a recording to PNG files in the scratchpad and inspecting
+them: ghosts grey and translucent, the best world coloured and on top, markers
+present, overlay text in the corners, the timeline filled to the right frame.
+The user verifies the window, the mouse, and the keys. Tests that need an
+OpenGL context skip with a clear reason where none can be created.

@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mujoco-replay"
+version = "0.1.0"
+description = "Replays recorded poses of many worlds of one MuJoCo model in a single scene"
+readme = "README.md"
+requires-python = ">=3.11"
+# MuJoCo is pinned to the version the scene composition was verified with.
+dependencies = [
+    "mujoco==3.12.0",
+    "numpy>=2,<3",
+]
+
+[project.optional-dependencies]
+# Writing MP4 files; imageio-ffmpeg bundles its own encoder.
+video = [
+    "imageio",
+    "imageio-ffmpeg",
+]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[project.scripts]
+mujoco-replay = "mujoco_replay.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
