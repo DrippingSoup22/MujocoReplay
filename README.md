@@ -15,12 +15,12 @@ overlay shows the facts of the run. The same scene can be rendered to a video.
 
 ## Status
 
-**Stage R2 complete (2026-10-07):** the package, the recording file format,
-the rank rule, and the scene composition exist and are tested; Centipede
-writes recordings with them. The scene composes any recorded model into one
-copy per drawn world, poses every copy frame by frame, and colours the ghosts.
-The viewer and the video (stages R3 to R5 of the plan) are not built yet: the
-command only parses its arguments.
+**Stage R3 built (2026-10-07):** the recording format, the rank rule, the
+scene composition, playback, the renderer, and the window exist and are
+tested; Centipede writes recordings with the first two. `mujoco-replay FILE`
+opens the window; it was verified on offscreen frames and driven with
+synthetic key presses, and awaits the user's check on a real display. The
+video (`render`, stage R4) is not built yet.
 
 ## Documentation
 

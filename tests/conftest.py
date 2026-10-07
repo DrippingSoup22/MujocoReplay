@@ -1,4 +1,6 @@
-"""Shared test helpers: a small model, and recordings of it built in memory."""
+"""Shared test helpers: a small model, recordings of it, and an OpenGL context."""
+
+import warnings
 
 import mujoco
 import numpy as np
@@ -68,3 +70,22 @@ def make_recording():
         return Recording(model_xml, 0.02, qpos, **fields)
 
     return make
+
+
+@pytest.fixture
+def gl_context():
+    """A current offscreen OpenGL context, or a skip where none can be made."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")  # GLFW warns before failing without a display
+        try:
+            context = mujoco.GLContext(320, 240)
+            context.make_current()
+            probe = mujoco.MjrContext(
+                mujoco.MjModel.from_xml_string("<mujoco/>"),
+                mujoco.mjtFontScale.mjFONTSCALE_100,
+            )
+        except Exception as error:
+            pytest.skip(f"no OpenGL context can be made here: {error}")
+    probe.free()
+    yield context
+    context.free()

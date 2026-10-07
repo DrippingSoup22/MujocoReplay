@@ -108,6 +108,20 @@ def test_ghosts_are_grey_and_the_highlight_keeps_the_models_colours(
     assert ghost(0) and ghost(1) and natural(2)
 
 
+def test_another_recording_of_the_same_model_is_shown_on_the_same_composite(
+    make_recording,
+):
+    scene = ComposedScene(make_recording(seed=1), np.arange(3))
+    model = scene.model
+    second, worlds = make_recording(seed=2), np.array([2, 1, 0])
+
+    assert scene.fits(second, worlds) and not scene.fits(second, np.arange(2))
+    scene.show(second, worlds)
+
+    assert scene.model is model
+    assert np.allclose(scene.data.xpos, ComposedScene(second, worlds).data.xpos)
+
+
 def test_joints_of_the_static_scene_follow_the_highlighted_world(
     make_recording, small_model
 ):

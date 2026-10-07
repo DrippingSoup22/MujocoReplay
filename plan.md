@@ -127,6 +127,22 @@ Composing 32 copies of a 52-shape chain takes 0.7 s.
   and confirms the camera, play and pause, stepping, the speed presets, the
   highlight key, and the overlay toggles.
 
+**Result (2026-10-07):** built; the user's check of the window is pending.
+The six playback tests and the render test pass (30 tests in all, with the
+render test skipped where no OpenGL context exists), plus a scene test for
+reusing the composite across files of one model. Centipede's smoke recording
+was not available in the development container, so the frames were rendered
+from recordings of the centipede-like chain of stage R2, simulated with
+MuJoCo for the purpose (64 worlds, a target marker, two events, `frame_info`,
+`setup_json`): they showed the grey translucent ghosts, the best world
+coloured, the markers, the corners, the setup panel, the flash, and the
+timeline. The window was also driven there under a virtual display with
+synthetic key presses: every key acted as listed, a three-file playlist ran
+on from file to file, and Q closed it cleanly. What changed from the design,
+with the reasons in [docs/design.md](docs/design.md): ghosts cast no shadows
+(marked as decoration), offscreen drawing uses `mujoco.GLContext`, the
+tracking camera needs `mj_comPos`, and the overlay keeps to ASCII.
+
 ### R4 — Video
 
 **Builds:** `src/mujoco_replay/video.py`, the `render` command, the `video`
@@ -153,6 +169,6 @@ accepted the end-of-stage commit in both projects.
 | --- | --- |
 | R1 — Package and recording format | Complete (2026-10-07) |
 | R2 — Scene composition | Complete (2026-10-07) |
-| R3 — Renderer, playback, viewer | Not started |
+| R3 — Renderer, playback, viewer | Built (2026-10-07); the user's window check pending |
 | R4 — Video | Not started |
 | R5 — Documents and status | Not started |

@@ -85,20 +85,15 @@ class ComposedScene:
         self.data = mujoco.MjData(self.model)
 
         self._map_positions(original, joints)
-        self._copy_bodies = [
-            np.array(
-                [self.model.body(f"w{copy}_{name}").id for name in bodies],
-                dtype=np.int64,
-            )
-            for copy in range(len(self.worlds))
-        ]
+        # Without replicated bodies, the world body stands in for each copy.
         self._root_bodies = [
             self.model.body(f"w{copy}_{roots[0]}").id if roots else 0
             for copy in range(len(self.worlds))
         ]
         body_copy = np.full(self.model.nbody, -1)
-        for copy, ids in enumerate(self._copy_bodies):
-            body_copy[ids] = copy
+        for copy in range(len(self.worlds)):
+            for name in bodies:
+                body_copy[self.model.body(f"w{copy}_{name}").id] = copy
         self._geom_copy = body_copy[self.model.geom_bodyid]
         self._natural_rgba = self.model.geom_rgba.copy()
         self._natural_matid = self.model.geom_matid.copy()
@@ -117,8 +112,31 @@ class ComposedScene:
             self.highlight, self._static_columns
         ]
         mujoco.mj_kinematics(self.model, self.data)
-        # Places lights and cameras that hang on bodies.
+        # Centres of mass, which the camera looks at; then the lights and
+        # cameras that hang on bodies.
+        mujoco.mj_comPos(self.model, self.data)
         mujoco.mj_camlight(self.model, self.data)
+
+    def fits(self, recording: Recording, worlds: np.ndarray) -> bool:
+        """Whether another recording's worlds can be shown on this composite.
+
+        The composite depends only on the model and the number of copies, so
+        consecutive files of one run reuse it instead of composing again.
+        """
+        own = self.recording
+        return (
+            recording.model_xml == own.model_xml
+            and recording.assets == own.assets
+            and recording.replicated_bodies == own.replicated_bodies
+            and recording.position_count == own.position_count
+            and len(worlds) == len(self.worlds)
+        )
+
+    def show(self, recording: Recording, worlds: np.ndarray) -> None:
+        """Show another recording that ``fits``, from its first frame."""
+        self.recording = recording
+        self.worlds = np.asarray(worlds, dtype=np.int64)
+        self.set_frame(0)
 
     def set_highlight(self, copy: int) -> None:
         """Draw copy ``copy`` in colour and the others as ghosts."""
@@ -138,10 +156,8 @@ class ComposedScene:
         return self.recording.marker_positions[self.frame_index, self.worlds]
 
     def world_centre(self, copy: int) -> np.ndarray:
-        """The mean position of copy ``copy``'s bodies at the current frame."""
-        if not len(self._copy_bodies[copy]):
-            return self.model.stat.center.copy()
-        return self.data.xpos[self._copy_bodies[copy]].mean(axis=0)
+        """Copy ``copy``'s centre of mass at the current frame."""
+        return self.data.subtree_com[self._root_bodies[copy]].copy()
 
     def root_body(self, copy: int) -> int:
         """The body id of copy ``copy``'s first replicated root body."""
