@@ -15,12 +15,14 @@ overlay shows the facts of the run. The same scene can be rendered to a video.
 
 ## Status
 
-**Stage R3 built (2026-10-07):** the recording format, the rank rule, the
-scene composition, playback, the renderer, and the window exist and are
-tested; Centipede writes recordings with the first two. `mujoco-replay FILE`
-opens the window; it was verified on offscreen frames and driven with
-synthetic key presses, and awaits the user's check on a real display. The
-video (`render`, stage R4) is not built yet.
+**Stage R4 built (2026-10-07):** the recording format, the rank rule, the
+scene composition, playback, the renderer, the window, and the video exist and
+are tested; Centipede writes recordings with the first two. `mujoco-replay
+FILE` opens the window and `mujoco-replay render FILE --out replay.mp4` writes
+a video. Both were verified in a container without a GPU, on offscreen frames,
+synthetic key presses, and a written video; they await the user's check on a
+real display and in a video player. Stage R5 brings the documents to their
+final state.
 
 ## Documentation
 

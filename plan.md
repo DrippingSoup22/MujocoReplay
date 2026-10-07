@@ -153,6 +153,15 @@ small size and the written file has the expected number of video frames
 (skipped where OpenGL or `imageio-ffmpeg` is missing), and the user-launched
 export of the smoke recording plays in an ordinary video player.
 
+**Result (2026-10-07):** built; the user's check in a video player is pending.
+The test writes two recorded frames at 0.3 s per frame and 10 frames per
+second, reads the file back, and finds six frames of 96 × 64 pixels. Through
+the command, two 40-frame recordings of the chain became an 8-second H.264
+file of 240 frames, whose frames showed the overlay, the file change, and the
+end-of-window event flashing as the second file began. A second failed
+attempt to make an OpenGL context aborts the process in MuJoCo 3.12, so the
+tests ask once per session (`opengl` in `tests/conftest.py`).
+
 ### R5 — Documents and status
 
 **Builds:** the README's status and use sections checked against the built
@@ -170,5 +179,5 @@ accepted the end-of-stage commit in both projects.
 | R1 — Package and recording format | Complete (2026-10-07) |
 | R2 — Scene composition | Complete (2026-10-07) |
 | R3 — Renderer, playback, viewer | Built (2026-10-07); the user's window check pending |
-| R4 — Video | Not started |
+| R4 — Video | Built (2026-10-07); the user's check in a video player pending |
 | R5 — Documents and status | Not started |

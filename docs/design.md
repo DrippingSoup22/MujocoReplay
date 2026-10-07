@@ -269,6 +269,17 @@ frame repeats for `speed × fps` video frames (9 at the defaults). Frames go to
 bundles its own encoder, so no system installation is needed. The `video`
 extra installs both; the viewer does not need them.
 
+Playback runs on a clock of video frames instead of the wall clock: video
+frame `i` shows the scene at `i / fps` seconds, so the result is the same
+however long the drawing takes. A recorded frame is drawn once and its pixels
+repeated, and drawn again only when the event flash appears or goes. Each file
+shows its own best world in colour, and consecutive files of one model reuse
+the composite, as in the window. The size is rounded down to even numbers,
+which the H.264 encoder needs, and the font scale follows the height (150 at
+720 rows, 200 at 1,080). A progress line counts the video frames on the error
+stream. With the software renderer of the development container, two 40-frame
+files at 640 × 360 and 0.1 s per frame took 2 min 18 s to export.
+
 ## Command line
 
 ```text

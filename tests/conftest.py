@@ -72,20 +72,31 @@ def make_recording():
     return make
 
 
-@pytest.fixture
-def gl_context():
-    """A current offscreen OpenGL context, or a skip where none can be made."""
+@pytest.fixture(scope="session")
+def opengl():
+    """Skip every drawing test where no OpenGL context can be made.
+
+    MuJoCo is asked once per session: after one failed attempt, a second one
+    aborts the whole process instead of raising.
+    """
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")  # GLFW warns before failing without a display
         try:
-            context = mujoco.GLContext(320, 240)
+            context = mujoco.GLContext(64, 64)
             context.make_current()
-            probe = mujoco.MjrContext(
+            mujoco.MjrContext(
                 mujoco.MjModel.from_xml_string("<mujoco/>"),
                 mujoco.mjtFontScale.mjFONTSCALE_100,
-            )
+            ).free()
         except Exception as error:
             pytest.skip(f"no OpenGL context can be made here: {error}")
-    probe.free()
+    context.free()
+
+
+@pytest.fixture
+def gl_context(opengl):
+    """A current offscreen OpenGL context of the test's own."""
+    context = mujoco.GLContext(320, 240)
+    context.make_current()
     yield context
     context.free()

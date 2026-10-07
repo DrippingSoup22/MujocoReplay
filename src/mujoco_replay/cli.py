@@ -27,19 +27,35 @@ def main(arguments: list[str] | None = None) -> int:
             drawn_worlds(recording, path, options, parser)
             for recording, path in zip(recordings, options.files, strict=True)
         ]
+        size = (options.width or 1280, options.height or 720)
         if options.command == "view":
             from mujoco_replay import viewer
 
             viewer.run(
-                recordings,
-                worlds,
-                options.speed,
-                hud=not options.no_hud,
-                size=(options.width or 1280, options.height or 720),
+                recordings, worlds, options.speed, hud=not options.no_hud, size=size
             )
             return 0
-        print("mujoco-replay render: not built yet; see plan.md (stage R4)")
-        return 2
+        try:
+            from mujoco_replay import video
+        except ImportError as error:
+            print(
+                f"mujoco-replay render needs the video extra ({error}); "
+                'install it with: pip install -e ".[video]"',
+                file=sys.stderr,
+            )
+            return 1
+        frames = video.export(
+            recordings,
+            worlds,
+            options.out,
+            options.speed,
+            options.fps,
+            size,
+            hud=not options.no_hud,
+            progress=_report_progress,
+        )
+        print(f"wrote {options.out}: {frames} frames, {frames / options.fps:.1f} s")
+        return 0
     except (RecordingError, RuntimeError) as error:
         print(f"mujoco-replay: {error}", file=sys.stderr)
         return 1
@@ -91,6 +107,13 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument("--out", required=True, help="the MP4 file to write")
     render.add_argument("--fps", type=_positive(int), default=30)
     return parser
+
+
+def _report_progress(done: int, total: int) -> None:
+    """One line on the error stream, rewritten in place, ended when done."""
+    if done == total or done % 30 == 0:
+        end = "\n" if done == total else ""
+        print(f"\rvideo frames: {done} / {total}", end=end, file=sys.stderr, flush=True)
 
 
 def _positive(kind: type):
