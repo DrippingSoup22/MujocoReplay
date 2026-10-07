@@ -282,11 +282,10 @@ additions, each answering a finding:
   reach an event in a replay;
 - the list of keys on `F1`, because the panel never mentioned the keys;
 - `render --mode`, so that a video can be drawn as plainly as the window;
-- leaner graphics, from the performance review: Quality without reflections,
-  which doubled the drawing for a change of 0.3 in 255, and with 16 by 8
-  facets instead of 28 by 16; the scene not drawn again when only the overlay
-  or the panel changed; 4 MiB instead of up to 3.5 GB reserved for MuJoCo's
-  working arrays; composing 40 % quicker;
+- leaner graphics, from the performance review: 16 by 8 facets instead of 28
+  by 16; the scene not drawn again when only the overlay or the panel
+  changed; 4 MiB instead of up to 3.5 GB reserved for MuJoCo's working
+  arrays; composing 40 % quicker;
 - the optional format keys `level_count`, `rank`, and `ranked_worlds`, so
   that a file holding a selection of a producer's worlds can show "rank 37 of
   1,024" and "level 1 of 4" truthfully.
@@ -316,7 +315,10 @@ frame-rate readout could stay on "measuring" forever, since an unchanged
 picture is not drawn again; cutting a long text took quadratic time; held
 letter keys repeated, and Caps Lock turned B into Shift+B; a `Recording`
 took ranks or a level count its own reader refused; framing failed when
-half the worlds diverged; and one file name could not be sorted.
+half the worlds diverged; and one file name could not be sorted. Last, the
+user kept reflections in Quality, which the performance review had taken
+out, and asked for a question before quitting, which Q, Esc, and the
+window's close button now ask, in a small box drawn in the window.
 
 ## Status
 

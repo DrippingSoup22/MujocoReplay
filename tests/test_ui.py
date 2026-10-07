@@ -8,6 +8,7 @@ from mujoco_replay.ui import (
     Title,
     Toggles,
     action_at,
+    dialog,
 )
 
 LINE = 20
@@ -61,3 +62,18 @@ def test_rows_that_do_not_fit_scroll_as_far_as_the_last():
 
     assert first[0].y + first[0].height > 300 - LINE  # the first row at the top
     assert 0 <= last[-1].y < LINE  # the last row at the bottom, and no further
+
+
+def test_a_dialog_sits_in_the_middle_with_its_buttons_inside():
+    boxes = dialog(800, 600, LINE, measure, "Quit?", (("Quit", "go"), ("No", "stay")))
+    frame, buttons = boxes[0], boxes[2:]
+
+    assert abs(frame.x + frame.width / 2 - 400) <= 1
+    assert abs(frame.y + frame.height / 2 - 300) <= 1
+    for box in buttons:
+        assert frame.contains(box.x, box.y)
+        assert frame.contains(box.x + box.width - 1, box.y + box.height - 1)
+    assert [action_at(boxes, *centre(boxes, b.action)) for b in buttons] == [
+        "go",
+        "stay",
+    ]

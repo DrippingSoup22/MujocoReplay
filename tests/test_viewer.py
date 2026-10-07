@@ -206,3 +206,22 @@ def test_a_held_letter_acts_once_and_shift_b_goes_back_whatever_the_case(
     assert type_b(glfw.REPEAT, glfw.MOD_SHIFT) == 2  # held: no more
     assert type_b(glfw.PRESS, 0) == 0  # Caps Lock alone: forward
     viewer.renderer.close()
+
+
+def test_quitting_asks_first_and_only_the_quit_button_or_enter_quits(window):
+    viewer = Viewer(window, Settings(cache=False), 0.3)
+
+    viewer._act("quit")
+    viewer._draw()
+    assert viewer.asking and not glfw.window_should_close(window)
+    viewer._on_key(window, glfw.KEY_ESCAPE, 0, glfw.PRESS, 0)  # Esc: stay
+    assert not viewer.asking and not glfw.window_should_close(window)
+    viewer._on_close(window)  # the window's close button asks too
+    viewer._draw()
+    box = next(box for box in viewer.boxes if box.action == "quit now")
+    middle = (box.x + box.width / 2, box.y + box.height / 2)
+    press(viewer, window, *middle, glfw.PRESS)
+    press(viewer, window, *middle, glfw.RELEASE)
+
+    assert glfw.window_should_close(window)
+    viewer.renderer.close()

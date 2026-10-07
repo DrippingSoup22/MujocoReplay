@@ -1,9 +1,8 @@
 """The viewer's settings: what it draws and how finely, kept between runs.
 
-Two presets set the graphics at once. Quality draws shadows, anti-aliasing,
-and fine shapes at full resolution, and leaves reflections to their switch:
-they double the drawing for a change few floors show. Performance turns them
-all off and draws fewer pixels, for weak graphics cards. Changing one switch
+Two presets set the graphics at once. Quality draws shadows, reflections,
+anti-aliasing, and fine shapes at full resolution; Performance turns them all
+off and draws fewer pixels, for weak graphics cards. Changing one switch
 afterwards makes the mode "custom". The settings are saved as JSON in the
 user's settings folder, so that the next run starts where this one ended; a
 file that cannot be read, or a value out of place in it, falls back to the
@@ -36,7 +35,7 @@ class Graphics:
 
 
 QUALITY = Graphics(
-    shadows=True, reflections=False, antialiasing=True, fine_shapes=True, resolution=100
+    shadows=True, reflections=True, antialiasing=True, fine_shapes=True, resolution=100
 )
 PERFORMANCE = Graphics(
     shadows=False,

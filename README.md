@@ -101,6 +101,6 @@ options; Tab hides it. On a weak graphics card, start in Performance mode
 with 16 worlds, turn on the frame-rate readout, and change one switch at a
 time: the readout says how long a frame takes to draw. Space plays and
 pauses, the arrows step and change speed, a double-click highlights a world,
-a click on the timeline jumps there, V resets the view, and F1 lists every
-key; [`docs/design.md`](docs/design.md) describes every key, option, and
+a click on the timeline jumps there, V resets the view, F1 lists every key,
+and Q or Esc asks before quitting; [`docs/design.md`](docs/design.md) describes every key, option, and
 switch.

@@ -92,6 +92,15 @@ KEYS = {
     glfw.KEY_ESCAPE: "quit",
     glfw.KEY_F1: "keys",
 }
+# The question before quitting, and what its keys and buttons do.
+QUIT_QUESTION = "Quit MujocoReplay?"
+QUIT_CHOICES = (("Quit (Enter)", "quit now"), ("Cancel (Esc)", "stay"))
+QUIT_KEYS = {
+    glfw.KEY_ENTER: "quit now",
+    glfw.KEY_KP_ENTER: "quit now",
+    glfw.KEY_ESCAPE: "stay",
+}
+QUIT_CHARACTERS = {"y": "quit now", "q": "quit now", "n": "stay"}
 # Keys by the character they type, so that they follow the keyboard's layout;
 # a capital letter does what its small letter does, and Shift+B goes back.
 CHARACTERS = {
@@ -137,7 +146,7 @@ HELP = [
     "H: overlay   I: setup",
     "O: open recordings",
     "Tab: panel   F1, ?: these keys",
-    "Q, Esc: quit",
+    "Q, Esc: quit (asks first)",
 ]
 
 
@@ -255,6 +264,7 @@ class Viewer:
         self.boxes: list[ui.Box] = []
         self.setup = False
         self.help = False
+        self.asking = False  # whether the question before quitting is shown
         self._picker: FilePicker | None = None
         self._dropped: list[str] = []
         self._passed: list[str] = []  # events passed, not yet flashed
@@ -284,6 +294,7 @@ class Viewer:
         glfw.set_drop_callback(window, self._on_drop)
         glfw.set_framebuffer_size_callback(window, self._on_change)
         glfw.set_window_refresh_callback(window, self._on_change)
+        glfw.set_window_close_callback(window, self._on_close)
 
     def loop(self) -> None:
         while not glfw.window_should_close(self.window):
@@ -375,8 +386,11 @@ class Viewer:
             fresh=first,  # a frame to time, even when only the overlay changed
         )
         hover = self._pixels(*self._cursor)
-        self.boxes = self._layout()
-        self.panel.draw(self.boxes, height, context, hover, self.settings.panel)
+        self.panel.draw(self._layout(), height, context, hover, self.settings.panel)
+        if self.asking:  # over everything else, which it dims
+            mujoco.mjr_rectangle(mujoco.MjrRect(0, 0, width, height), 0, 0, 0, 0.5)
+            self.panel.draw(self._question(), height, context, hover, False)
+        self.boxes = self._targets()
         if self.settings.frame_rate and self.renderer.drew_scene:
             mujoco.mjr_finish()  # wait for the graphics card, to time it
             self._draw_seconds.append(time.perf_counter() - start)
@@ -397,6 +411,21 @@ class Viewer:
         row = line + line // 2
         top = height - line // 2 - row
         return [ui.Box(line // 2, top, 5 * line, row, "button", "Panel", "panel")]
+
+    def _question(self) -> list[ui.Box]:
+        """The question before quitting, in the middle of the window."""
+        width, height = glfw.get_framebuffer_size(self.window)
+        context = self.renderer.context
+
+        def measure(text: str) -> int:
+            return ui.text_width(context, text)
+
+        line = context.charHeight
+        return ui.dialog(width, height, line, measure, QUIT_QUESTION, QUIT_CHOICES)
+
+    def _targets(self) -> list[ui.Box]:
+        """What a click can hit: the question's buttons while it is shown."""
+        return self._question() if self.asking else self._layout()
 
     def _rows(self) -> list[ui.Row]:
         """The panel as it stands, top to bottom."""
@@ -555,13 +584,15 @@ class Viewer:
             "panel": setting("panel"),
             "setup": self._toggle_setup,
             "keys": self._toggle_help,
-            "quit": lambda: glfw.set_window_should_close(self.window, True),
+            "quit": self._ask_to_quit,
+            "quit now": lambda: glfw.set_window_should_close(self.window, True),
+            "stay": self._stay,
         }
 
     def _act(self, action: str) -> None:
         self._actions[action]()
         # Clicks still queued must meet the panel as it now is, not as drawn.
-        self.boxes = self._layout()
+        self.boxes = self._targets()
         self._dirty = True
 
     def _change(self, settings: Settings) -> None:
@@ -703,6 +734,12 @@ class Viewer:
     def _toggle_help(self) -> None:
         self.help = not self.help
 
+    def _ask_to_quit(self) -> None:
+        self.asking = True
+
+    def _stay(self) -> None:
+        self.asking = False
+
     def _cache(self):
         return user_folder("cache") if self.settings.cache else None
 
@@ -804,7 +841,7 @@ class Viewer:
         stepping = key in (glfw.KEY_RIGHT, glfw.KEY_LEFT)
         if action == glfw.RELEASE or (action == glfw.REPEAT and not stepping):
             return
-        name = KEYS.get(key)
+        name = (QUIT_KEYS if self.asking else KEYS).get(key)
         if name is not None:
             self._act(name)
 
@@ -812,7 +849,8 @@ class Viewer:
         """A typed character's action, once per press however long it is held."""
         if self._held:
             return
-        name = CHARACTERS.get(chr(codepoint).lower())
+        characters = QUIT_CHARACTERS if self.asking else CHARACTERS
+        name = characters.get(chr(codepoint).lower())
         if name == "next world" and self._shift:
             name = "previous world"
         if name is not None:
@@ -837,7 +875,7 @@ class Viewer:
         if name is not None:
             self._pressed = name
             return
-        if self._over_panel(x):
+        if self.asking or self._over_panel(x):  # the question takes the mouse
             return
         left = button == glfw.MOUSE_BUTTON_LEFT
         if left and self._on_timeline(x, y):
@@ -888,6 +926,8 @@ class Viewer:
 
     def _on_scroll(self, window, x: float, y: float) -> None:
         """The wheel scrolls the panel under the cursor, and zooms elsewhere."""
+        if self.asking:
+            return
         if self._over_panel(self._pixels(*self._cursor)[0]):
             self.panel.scroll_by(round(-2 * self.renderer.context.charHeight * y))
             self.boxes = self._layout()
@@ -900,6 +940,11 @@ class Viewer:
 
     def _on_change(self, window, *ignored) -> None:
         self._dirty = True
+
+    def _on_close(self, window) -> None:
+        """The window's close button asks first, as Q and Esc do."""
+        glfw.set_window_should_close(window, False)
+        self._act("quit")
 
 
 def _placement(

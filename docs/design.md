@@ -237,7 +237,7 @@ that frame (`Playback.seek`).
 | O | Open recordings with the system's file picker |
 | F1, ? | Show or hide this list of keys, at the top right |
 | Tab | Show or hide the side panel (remembered) |
-| Esc, Q | Quit |
+| Esc, Q | Ask whether to quit: Enter, Y, or Q again quits; Esc or N stays. The window's close button asks too |
 
 Right and Left repeat while held; every other key acts once per press. Letter
 keys are read as the characters they type (GLFW's character callback), so
@@ -375,9 +375,10 @@ issues the calls without drawing, issuing them took 9.8 ms at 32 worlds and
 4× anti-aliasing 86 %, shadows 57 %, and MuJoCo's own tessellation of round
 shapes (28 facets around, 16 along) 280 %; reflections changed the picture of
 Centipede's dark floor by 0.3 of 255 on average, and 16 by 8 facets changed
-it by less, even close up. So Quality now leaves reflections off (their
-switch stays), and fine shapes are 16 by 8: Quality then issues about as many
-draws as Performance and four times fewer triangles than before. A shadow map
+it by less, even close up. So fine shapes are 16 by 8, which cut Quality's
+triangles by about four. Quality keeps reflections all the same, as the user
+decided on 2026-10-07: it is the mode for the look, and the Reflections
+switch, or Performance, drops them when the frame rate matters. A shadow map
 of 2048 or 1024 texels saved no time and showed jagged shadows, so MuJoCo's
 4096 stays. With 128 worlds, issuing the draws alone may take 15 to 30 ms on
 the laptop (an estimate: a third of Mesa's time), so 32 worlds is the
@@ -388,7 +389,7 @@ smooth maximum there, and 128 a view for pausing.
 | Switch | Quality | Performance | How it is done |
 | --- | --- | --- | --- |
 | Shadows | on | off | MuJoCo's `mjRND_SHADOW` flag; a scene whose lights cast no shadow gets one from its first light (Centipede's light casts none), over at least 4 model extents (`vis.map.shadowclip`) |
-| Reflections | off | off | `mjRND_REFLECTION`; a floor (a plane with a material) that does not reflect reflects 0.08 |
+| Reflections | on | off | `mjRND_REFLECTION`; a floor (a plane with a material) that does not reflect reflects 0.08 |
 | Anti-aliasing | on | off | 4 samples in MuJoCo's offscreen buffer (`vis.quality.offsamples`) |
 | Fine shapes | on | off | `vis.quality.numslices` and `numstacks`: 16 and 8, or 12 and 6 |
 | Resolution | 100 % | 75 % | the share of the window's width and height drawn, then scaled up |

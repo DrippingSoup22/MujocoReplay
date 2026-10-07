@@ -6,7 +6,8 @@ chosen), and steppers (a value between a minus and a plus button).
 ``Panel.layout`` places the rows down the left edge of the window and returns
 boxes; ``Panel.draw`` draws the boxes with MuJoCo's ``mjr_rectangle`` and
 ``mjr_label``, and a scroll bar when the rows do not fit; and ``action_at``
-names the action under a click. Rows and boxes are plain data,
+names the action under a click. ``dialog`` places a question with its buttons
+in the middle of the window, drawn the same way. Rows and boxes are plain data,
 so the layout and the clicks are tested without OpenGL. Coordinates are
 framebuffer pixels from the bottom left, as MuJoCo's rectangles use them.
 """
@@ -65,7 +66,7 @@ class Box:
     y: int
     width: int
     height: int
-    kind: str  # title, section, note, label, value, button, lit
+    kind: str  # title, section, note, label, value, button, lit, dialog, question
     text: str
     action: str = ""
 
@@ -184,7 +185,13 @@ class Panel:
                 _label(context, box.rect(), box.text, fill, TEXT)
             elif box.kind == "title":
                 _text(context, box, box.text, TEXT, mujoco.mjtFont.mjFONT_BIG)
-            elif box.kind == "value":
+            elif box.kind == "dialog":  # a frame in the button colour, then inside
+                edge = mujoco.MjrRect(
+                    box.x - 2, box.y - 2, box.width + 4, box.height + 4
+                )
+                mujoco.mjr_rectangle(edge, *HOVER)
+                mujoco.mjr_rectangle(box.rect(), *BACKGROUND)
+            elif box.kind in ("value", "question"):
                 _label(context, box.rect(), box.text, (0, 0, 0, 0), TEXT)
             else:
                 colour = {"section": HEADING, "note": DIM}.get(box.kind, TEXT)
@@ -192,6 +199,36 @@ class Panel:
 
     def scroll_by(self, pixels: int) -> None:
         self.scroll = max(0, self.scroll + pixels)
+
+
+def dialog(
+    width: int,
+    height: int,
+    line: int,
+    text_width: Callable[[str], int],
+    question: str,
+    choices: tuple[tuple[str, str], ...],
+) -> list[Box]:
+    """A question in a box in the middle of a window, with a button per choice.
+
+    ``choices`` are ``(label, action)`` pairs; the boxes are the dialog's
+    frame, the question, and the buttons, in drawing order.
+    """
+    row = line + line // 2
+    button = max(text_width(label) for label, _ in choices) + 2 * line
+    buttons = len(choices) * button + (len(choices) - 1) * line
+    inner = max(text_width(question) + line, buttons)
+    box_width, box_height = inner + 2 * line, 5 * line + line // 2
+    x, y = (width - box_width) // 2, (height - box_height) // 2
+    boxes = [
+        Box(x, y, box_width, box_height, "dialog", ""),
+        Box(x + line, y + box_height - line - row, inner, row, "question", question),
+    ]
+    left = x + (box_width - buttons) // 2
+    for index, (label, action) in enumerate(choices):
+        place = left + index * (button + line)
+        boxes.append(Box(place, y + line, button, row, "button", label, action))
+    return boxes
 
 
 def action_at(boxes: Sequence[Box], x: float, y: float) -> str | None:
