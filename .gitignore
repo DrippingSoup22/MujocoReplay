@@ -5,3 +5,4 @@ __pycache__/
 archive/
 typings/
 *.mp4
+MUJOCO_LOG.TXT

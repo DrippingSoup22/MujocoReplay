@@ -126,8 +126,9 @@ def test_a_worlds_centre_is_the_centre_of_mass_of_all_its_root_bodies(
 
 
 def test_a_cached_composite_poses_exactly_like_a_freshly_composed_one(
-    make_recording, tmp_path
+    make_recording, tmp_path, monkeypatch
 ):
+    monkeypatch.chdir(tmp_path)  # MuJoCo logs the damaged entry to the working folder
     recording = make_recording(frames=2, worlds=3)
     fresh = ComposedScene(recording, np.arange(3), cache=tmp_path)
     cached = ComposedScene(recording, np.arange(3), cache=tmp_path)
