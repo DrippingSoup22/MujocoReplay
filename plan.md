@@ -1,6 +1,7 @@
 # Development plan
 
-This plan builds MujocoReplay in five stages. It is paired with Stage 7 of the
+This plan builds MujocoReplay in six stages; the user asked for the sixth on
+2026-10-07, once the first five were built. It is paired with Stage 7 of the
 sibling `Centipede` project (`../Centipede/plan.md`), which records the files
 this tool replays. The format is fixed in
 [docs/recording-format.md](docs/recording-format.md) and the design in
@@ -180,6 +181,55 @@ ASCII-only overlay. The links from Centipede's documents remain, because the
 development container had no access to that project, and with them the
 user's acceptance and the window and video checks of stages R3 and R4.
 
+### R6 — The application: panel, settings, and performance
+
+Asked by the user on 2026-10-07, after R5: the window becomes an application
+that starts on an empty flat world and is driven by a side panel, with a
+Quality and a Performance mode for weak graphics cards such as the user's
+GeForce MX330, a setting for how many worlds are drawn, and a cache of
+composed scenes. The panel offers the tool's own settings only, never
+MuJoCo's raw visual options. One file holds the model and its environment, as
+a recording already does, so nothing is loaded separately.
+
+**Builds:**
+
+- the world count: 1, 2, 4, … up to 128, and up to the file's worlds. With
+  `N` worlds, the file's worlds are split by score rank into `N` bands of as
+  equal a size as possible and the best world of each band is drawn
+  (`selected_ranks(K, N, 1)`): 1 shows the best, 2 the best of each half. It
+  replaces `--levels`, `--per-level`, and `--all`; `selected_ranks` and
+  `level_of_ranks`, which Centipede imports, stay as they are;
+- `src/mujoco_replay/settings.py`: the settings, the two presets, and keeping
+  them in the user's settings folder between runs; `tests/test_settings.py`;
+- graphics settings applied by the renderer: shadows (added to the model's
+  lights), reflections (a slight one added to a floor that has none), 4×
+  anti-aliasing, shape detail (MuJoCo's `numslices` and `numstacks`), and a
+  resolution scale, drawing offscreen at a fraction of the window and scaling
+  up, with the overlay at full resolution; a frame-rate readout; no redrawing
+  while nothing changes;
+- the composed-scene cache: the compiled composite saved in MuJoCo's binary
+  format in the user's cache folder, keyed by the model, the number of copies,
+  and the MuJoCo version;
+- `src/mujoco_replay/ui.py`: the side panel drawn with MuJoCo's overlay
+  functions (buttons, switches, steppers), its layout, and its hit testing;
+  `tests/test_ui.py`;
+- the empty flat world at start; an Open button that shows the system's file
+  picker (tkinter, in a separate process, so the window keeps drawing);
+  dropping files onto the window; the target drawn at its true size with a
+  beacon sized to the scene, so that Centipede's 1 mm target can be found.
+
+**Done when:**
+
+- tests show the count rule, the presets and the saving of settings, the
+  panel's hit testing, a cached composite posing exactly like a freshly
+  composed one, and both presets drawing;
+- offscreen frames of a stand-in recording made with Centipede's own model,
+  in both modes, inspected; the window driven under a virtual display through
+  the panel: opening by dropping files, switching modes, changing the count,
+  and a reopened run served from the cache;
+- the user runs it on the MX330 with Centipede's recordings and finds
+  settings that play smoothly.
+
 ## Status
 
 | Stage | Status |
@@ -189,3 +239,4 @@ user's acceptance and the window and video checks of stages R3 and R4.
 | R3 — Renderer, playback, viewer | Built (2026-10-07); the user's window check pending |
 | R4 — Video | Built (2026-10-07); the user's check in a video player pending |
 | R5 — Documents and status | This project's documents done (2026-10-07); Centipede's links and the user's acceptance pending |
+| R6 — The application: panel, settings, and performance | In progress (2026-10-07) |
