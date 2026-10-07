@@ -9,8 +9,9 @@ import pytest
 from mujoco_replay.recording import Recording
 
 # A floor, two lights, a static post, a door on a hinge, and a robot: a free
-# root body with a painted shape and a hidden one, and an arm on a hinge. The
-# arm's hinge is unnamed and the spot light aims at the robot, two cases the
+# root body with a painted shape, a hidden one, a site, and a camera aimed at
+# the post, and an arm on a hinge. The unnamed hinge, the spot light aimed at
+# the robot, and the robot's camera aimed at the post are cases the
 # composition must handle.
 SMALL_MODEL = """
 <mujoco model="small">
@@ -32,6 +33,8 @@ SMALL_MODEL = """
       <freejoint/>
       <geom name="torso" type="box" size="0.2 0.1 0.05" material="paint"/>
       <geom name="bumper" type="sphere" size="0.12" rgba="0 0 0 0"/>
+      <site name="nose" pos="0.2 0 0" size="0.03" rgba="0 1 0 1"/>
+      <camera name="eye" pos="0 0 0.3" mode="targetbody" target="post"/>
       <body name="arm" pos="0.2 0 0">
         <joint type="hinge" axis="0 1 0"/>
         <geom name="forearm" type="capsule" fromto="0 0 0 0.3 0 0" size="0.03"

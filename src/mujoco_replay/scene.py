@@ -71,24 +71,23 @@ class ComposedScene:
         _delete_unused_parts(composite)
         for name in roots:
             composite.delete(composite.body(name))
-        for copy in range(len(self.worlds)):
+        static = {body.name for body in composite.bodies}
+        prefixes = [f"w{copy}_" for copy in range(len(self.worlds))]
+        for prefix in prefixes:
             source = self._parse()
             # Lights on the moving bodies light the scene once, from the best world.
-            _reduce_to(source, roots, keep_lights=copy == 0)
+            _reduce_to(source, roots, keep_lights=prefix == "w0_")
             frame = composite.worldbody.add_frame()
-            composite.attach(source, frame=frame, prefix=f"w{copy}_")
-        # A static camera or light aimed at a moving body follows the best world.
-        for item in [*composite.cameras, *composite.lights]:
-            if item.targetbody in bodies:
-                item.targetbody = f"w0_{item.targetbody}"
+            composite.attach(source, frame=frame, prefix=prefix)
+        _keep_targets(composite, set(bodies), static, prefixes)
         self.model = self._compile(composite, "the composed scene")
         self.data = mujoco.MjData(self.model)
 
         self._map_positions(original, joints)
         # Without replicated bodies, the world body stands in for each copy.
         self._root_bodies = [
-            self.model.body(f"w{copy}_{roots[0]}").id if roots else 0
-            for copy in range(len(self.worlds))
+            np.array([self.model.body(prefix + name).id for name in roots] or [0])
+            for prefix in prefixes
         ]
         body_copy = np.full(self.model.nbody, -1)
         for copy in range(len(self.worlds)):
@@ -156,12 +155,12 @@ class ComposedScene:
         return self.recording.marker_positions[self.frame_index, self.worlds]
 
     def world_centre(self, copy: int) -> np.ndarray:
-        """Copy ``copy``'s centre of mass at the current frame."""
-        return self.data.subtree_com[self._root_bodies[copy]].copy()
-
-    def root_body(self, copy: int) -> int:
-        """The body id of copy ``copy``'s first replicated root body."""
-        return self._root_bodies[copy]
+        """Copy ``copy``'s centre of mass at the current frame, over all its roots."""
+        roots = self._root_bodies[copy]
+        mass = self.model.body_subtreemass[roots]
+        if not mass.sum() > 0:  # massless bodies: their mean position instead
+            return self.data.xpos[roots].mean(axis=0)
+        return mass @ self.data.subtree_com[roots] / mass.sum()
 
     def _parse(self) -> mujoco.MjSpec:
         """A fresh spec of the recorded model, with every body and joint named."""
@@ -282,6 +281,26 @@ def _subtree_names(spec: mujoco.MjSpec, roots: list[str]) -> tuple[list[str], se
         bodies.extend(body.name for body in root.find_all(mujoco.mjtObj.mjOBJ_BODY))
         joints.update(joint.name for joint in root.find_all(mujoco.mjtObj.mjOBJ_JOINT))
     return bodies, joints
+
+
+def _keep_targets(
+    spec: mujoco.MjSpec, moving: set[str], static: set[str], prefixes: list[str]
+) -> None:
+    """Keep every camera and light aimed at the body it was aimed at.
+
+    A static one aimed at a moving body would aim at a body that no longer
+    exists; it follows the best world's copy instead. One inside a copy aimed
+    at a static body was given the copy's prefix by attaching; it loses it.
+    """
+    for item in [*spec.cameras, *spec.lights]:
+        target = item.targetbody
+        if target in moving:
+            item.targetbody = f"w0_{target}"
+            continue
+        for prefix in prefixes:
+            if target.startswith(prefix) and target[len(prefix) :] in static:
+                item.targetbody = target[len(prefix) :]
+                break
 
 
 def _reduce_to(spec: mujoco.MjSpec, roots: list[str], keep_lights: bool) -> None:

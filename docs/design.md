@@ -37,7 +37,7 @@ blob anyway.
 | `playback.py` | `Playback`: the playlist, current frame, play/pause, speed presets, stepping, the events just passed, and the playback line of the overlay; pure logic, no graphics | none |
 | `render.py` | `SceneRenderer`: the MuJoCo render context, camera, drawing of the scene, markers, overlay, timeline, and reading pixels back; works in a window or offscreen | MuJoCo, NumPy |
 | `viewer.py` | The window: GLFW setup, mouse and key handling, the main loop | GLFW, MuJoCo, NumPy; imported only by the `view` command |
-| `video.py` | Offscreen rendering of a playlist to an MP4 | `imageio` inside the function |
+| `video.py` | Offscreen rendering of a playlist to an MP4 | `imageio`, `imageio-ffmpeg`, MuJoCo, NumPy; imported only by the `render` command, so a missing `video` extra fails before any work |
 | `cli.py`, `__main__.py` | The `mujoco-replay` command and `python -m mujoco_replay` | argparse, NumPy; the window and video modules inside the commands |
 
 `recording` and `selection` are the producer-facing half: Centipede imports
@@ -83,12 +83,14 @@ its world's `qpos` exactly.
    bodies share a material ("incompatible id in material array"). Attaching
    moves the contents out of the source spec, so the XML is parsed again for
    every copy.
-4. Two fixes before compiling. A camera or light of the static scene aimed at
-   a replicated body (`mode="targetbody"`) would aim at a body that no longer
-   exists, which does not compile; it is aimed at copy 0's body, the best
-   world's, instead. Lights inside the replicated bodies are kept in copy 0
-   only, so that 32 copies of a tracking light do not light the scene 32
-   times over.
+4. Fixes before compiling. Cameras and lights aimed at a body
+   (`mode="targetbody"`) keep aiming at it across the split: one of the
+   static scene aimed at a replicated body would aim at a body that no longer
+   exists, which does not compile, so it is aimed at copy 0's body, the best
+   world's; one inside a copy aimed at a static body was given the copy's
+   prefix by attaching (`w3_post`), and loses it. Lights inside the
+   replicated bodies are kept in copy 0 only, so that 32 copies of a tracking
+   light do not light the scene 32 times over.
 5. Compile, and build the mapping by name. Copy `k`'s joints happen to sit in
    a contiguous block of the composite's `qpos`, but nothing relies on that:
    for each joint of the original model and each copy `k`, the composite's
@@ -188,7 +190,7 @@ file draws it, and returns to rank 0 otherwise.
 | H | Show or hide the overlay |
 | I | Show or hide the setup panel |
 | C | Centre the camera on the highlighted world |
-| F | Follow the highlighted world (tracking camera) on or off |
+| F | Follow the highlighted world on or off |
 | Esc, Q | Quit |
 
 Right and Left repeat while held. Mouse, as in MuJoCo's `simulate`: left drag
@@ -227,14 +229,17 @@ buffer, so the video carries it unless `--no-hud` is given.
 
 A free camera (`mjCAMERA_FREE`) starts looking at the centre of the drawn
 worlds and their markers at frame 0, from a raised angle, at a distance of 0.8
-times their spread plus 1.2 times the composite model's `stat.extent`. `C`
-recentres on the highlighted world's centre of mass; `F` switches to a
-tracking camera (`mjCAMERA_TRACKING`) on the highlighted world's root body,
-which moves with the highlight, and back to a free camera where it stands.
-MuJoCo's tracking camera looks at the body's `subtree_com`, which
-`mj_kinematics` leaves at zero, so `set_frame` also runs `mj_comPos`, which
-computes it. The camera is independent of playback; it is kept when the next
-file reuses the composite, and reframed for a file of another model.
+times their spread plus 1.2 times the composite model's `stat.extent`. A
+world's centre is the centre of mass of all its replicated root bodies,
+weighted by their masses, from the `subtree_com` that `mj_comPos` computes
+(`mj_kinematics` leaves it at zero, so `set_frame` runs both). `C` recentres
+on the highlighted world's centre; `F` keeps the camera's look-at point on it
+every frame, following the highlight as it moves, and leaves the camera where
+it stands when switched off. This is what MuJoCo's tracking camera
+(`mjCAMERA_TRACKING`) does for one body, but a world may have several root
+bodies. The camera is independent of playback; it is kept when the next file
+reuses the composite, and reframed for a file of another model, in the window
+and in the video alike.
 
 ## Rendering in a window and offscreen
 
@@ -259,9 +264,11 @@ Each frame, `mjv_updateScene` lists the shapes to draw; the ghosts' shapes are
 then marked as decoration (`mjCAT_DECOR`), because MuJoCo draws translucent
 shapes with full, dark shadows, which would cover the floor in grey, and casts
 none from decoration; the markers are added; `mjr_render` draws, and the
-overlay goes on top. The highlighted world keeps its shadow. For 32 copies of
-the chain (1,633 shapes), listing the shapes takes 0.05 ms, marking the ghosts
-1 ms in Python, and posing the frame 0.2 ms.
+overlay goes on top. The highlighted world keeps its shadow. Sites are not
+drawn at all: they mark points for sensors and attachments, and every ghost
+would carry opaque copies of them. For 32 copies of the chain (1,633 shapes),
+listing the shapes takes 0.05 ms, marking the ghosts 1 ms in Python, and
+posing the frame 0.2 ms.
 
 ## Video
 
@@ -276,9 +283,11 @@ extra installs both; the viewer does not need them.
 Playback runs on a clock of video frames instead of the wall clock: video
 frame `i` shows the scene at `i / fps` seconds, so the result is the same
 however long the drawing takes. A recorded frame is drawn once and its pixels
-repeated, and drawn again only when the event flash appears or goes. Each file
-shows its own best world in colour, and consecutive files of one model reuse
-the composite, as in the window. The size is rounded down to even numbers,
+repeated, and drawn again only when the event flash appears or goes. When the
+last file ends with an event (frame `T`), the last frame is held for the
+second the flash lasts, so that the video shows it too. Each file shows its
+own best world in colour, and consecutive files of one model reuse the
+composite, as in the window. The size is rounded down to even numbers,
 which the H.264 encoder needs, and the font scale follows the height (150 at
 720 rows, 200 at 1,080). A progress line counts the video frames on the error
 stream. With the software renderer of the development container, two 40-frame
@@ -299,7 +308,9 @@ command. Both subcommands draw at 1280 × 720 unless told otherwise, read and
 check every file before opening anything (the checks that need a later file's
 model come when playback reaches it), and exit with status 1 and a one-line
 message for a bad file or a missing OpenGL; `render` names a missing `video`
-extra the same way, and reports its progress on the error stream.
+extra the same way, refuses an output folder that does not exist before any
+work, and reports its progress on the error stream. Options may come before
+or after the files, and sizes are at least 16 pixels.
 
 ## Dependencies
 

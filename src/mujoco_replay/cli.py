@@ -7,6 +7,7 @@ command starts quickly and reports a bad file before opening anything.
 
 import argparse
 import sys
+from pathlib import Path
 
 import numpy as np
 
@@ -18,9 +19,11 @@ def main(arguments: list[str] | None = None) -> int:
     """Parse the command line and run the chosen subcommand."""
     parser = build_parser()
     raw = list(sys.argv[1:] if arguments is None else arguments)
-    if raw and raw[0] not in ("view", "render") and not raw[0].startswith("-"):
+    if not raw or raw[0] not in ("view", "render", "-h", "--help"):
         raw.insert(0, "view")
     options = parser.parse_args(raw)
+    if options.command == "render" and not Path(options.out).parent.is_dir():
+        parser.error(f"--out: the folder {Path(options.out).parent} does not exist")
     try:
         recordings = [read_recording(path) for path in options.files]
         worlds = [
@@ -102,8 +105,8 @@ def build_parser() -> argparse.ArgumentParser:
             help="seconds per recorded frame",
         )
         subcommand.add_argument("--no-hud", action="store_true")
-        subcommand.add_argument("--width", type=_positive(int))
-        subcommand.add_argument("--height", type=_positive(int))
+        subcommand.add_argument("--width", type=_at_least(16), help="in pixels")
+        subcommand.add_argument("--height", type=_at_least(16), help="in pixels")
     render.add_argument("--out", required=True, help="the MP4 file to write")
     render.add_argument("--fps", type=_positive(int), default=30)
     return parser
@@ -126,6 +129,19 @@ def _positive(kind: type):
         return value
 
     parse.__name__ = kind.__name__  # argparse names the type in its messages
+    return parse
+
+
+def _at_least(minimum: int):
+    """An argument type: a whole number of at least ``minimum``."""
+
+    def parse(text: str) -> int:
+        value = int(text)
+        if value < minimum:
+            raise argparse.ArgumentTypeError(f"{text} is below {minimum}")
+        return value
+
+    parse.__name__ = "int"
     return parse
 
 

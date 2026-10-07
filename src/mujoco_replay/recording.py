@@ -195,6 +195,11 @@ def read_recording(path: Path | str) -> Recording:
             raise fail(key, f"must have shape {shape}, has {arrays[key].shape}")
     if "level" in arrays and arrays["level"].size and arrays["level"].min() < 1:
         raise fail("level", "must be 1 or more")
+    if "replicated_bodies" in arrays:
+        names = [str(name) for name in arrays["replicated_bodies"]]
+        repeated = sorted({name for name in names if names.count(name) > 1})
+        if repeated:
+            raise fail("replicated_bodies", f"names {repeated[0]!r} more than once")
     if "event_frames" in arrays and arrays["event_frames"].size:
         events = arrays["event_frames"]
         if events.min() < 0 or events.max() > frames:

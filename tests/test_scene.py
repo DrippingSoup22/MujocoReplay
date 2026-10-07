@@ -108,6 +108,23 @@ def test_ghosts_are_grey_and_the_highlight_keeps_the_models_colours(
     assert ghost(0) and ghost(1) and natural(2)
 
 
+def test_a_worlds_centre_is_the_centre_of_mass_of_all_its_root_bodies(
+    make_recording, small_model
+):
+    recording = make_recording(frames=1, worlds=2)
+    scene = ComposedScene(recording, np.array([1, 0]))
+    original = mujoco.MjModel.from_xml_string(small_model)
+    alone = mujoco.MjData(original)
+    alone.qpos[:] = recording.qpos[0, 1]
+    mujoco.mj_kinematics(original, alone)
+    mujoco.mj_comPos(original, alone)
+    roots = [original.body("door").id, original.body("robot").id]
+    mass = original.body_subtreemass[roots]
+
+    expected = mass @ alone.subtree_com[roots] / mass.sum()
+    assert np.allclose(scene.world_centre(0), expected)
+
+
 def test_another_recording_of_the_same_model_is_shown_on_the_same_composite(
     make_recording,
 ):

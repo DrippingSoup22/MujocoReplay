@@ -111,6 +111,7 @@ def test_a_minimal_recording_reads_with_the_defaults(tmp_path):
         ({"format_version": np.int64(2)}, "format_version"),
         ({"frame_seconds": np.float64(0.0)}, "frame_seconds"),
         ({"qpos": np.zeros((0, 2, 4), dtype=np.float32)}, "qpos"),
+        ({"replicated_bodies": np.array(["b", "b"])}, "replicated_bodies"),
     ],
 )
 def test_a_file_that_breaks_the_format_is_rejected_by_key(tmp_path, change, key):

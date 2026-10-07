@@ -69,7 +69,8 @@ Rules:
   absent.
 - Shapes must agree with each other; `qpos` holds at least one frame and one
   world; `frame_seconds` is positive; event frames lie in `[0, T]`; levels are
-  at least `1`; `setup_json` parses as a JSON object. The reader rejects anything else with an error naming the file and
+  at least `1`; `replicated_bodies` names each body once; `setup_json` parses
+  as a JSON object. The reader rejects anything else with an error naming the file and
   the key.
 - The checks that need the model are made when the scene is composed:
   `model_xml` must parse and compile, its `nq` must match `qpos`, and

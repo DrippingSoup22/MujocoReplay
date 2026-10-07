@@ -5,8 +5,9 @@ Playback runs on a clock of video frames instead of the wall clock: video frame
 ``seconds_per_frame`` in the video. A recorded frame is drawn once and its
 pixels repeated, and redrawn only when the event flash appears or goes. The
 frames go to ``imageio`` with the ``ffmpeg`` plugin of ``imageio-ffmpeg``,
-which bundles its own encoder; both come with the ``video`` extra and are
-imported only here.
+which bundles its own encoder; both come with the ``video`` extra, and only
+the ``render`` command imports this module, so importing them here makes a
+missing extra fail before any work.
 """
 
 import math
@@ -14,6 +15,8 @@ from collections.abc import Callable
 from contextlib import ExitStack
 from pathlib import Path
 
+import imageio.v2 as imageio
+import imageio_ffmpeg  # noqa: F401  (the encoder behind imageio's FFMPEG format)
 import numpy as np
 
 from mujoco_replay.playback import Playback
@@ -38,13 +41,16 @@ def export(
 
     ``worlds`` holds, per recording, the indices of the worlds to draw, best
     first. The size is rounded down to even numbers, as the encoder needs.
-    ``progress``, when given, is called with the frames done and the total.
+    When the last file ends with an event, the last frame is held while the
+    event flashes. ``progress``, when given, is called with the frames done
+    and the total.
     """
-    import imageio.v2 as imageio
-
     width, height = size[0] // 2 * 2, size[1] // 2 * 2
     recorded = sum(recording.frame_count for recording in recordings)
     total = math.ceil(recorded * seconds_per_frame * fps - 1e-9)
+    last = recordings[-1]
+    if last.event_frames is not None and (last.event_frames == last.frame_count).any():
+        total += math.ceil(FLASH_SECONDS * fps)
     playback = Playback(recordings, seconds_per_frame, now=0.0)
     shown_file, flash, flash_until = 0, "", -1.0
     drawn, pixels = None, None
@@ -66,8 +72,15 @@ def export(
                 flash, flash_until = "  ".join(labels), now + FLASH_SECONDS
             if playback.file_index != shown_file:
                 shown_file = playback.file_index
-                scene = _scene_for(scene, recordings[shown_file], worlds[shown_file])
-                renderer.show(scene)
+                recording, chosen = recordings[shown_file], worlds[shown_file]
+                if scene.fits(recording, chosen):
+                    scene.show(recording, chosen)
+                    scene.set_highlight(0)
+                    renderer.show(scene)
+                else:  # another model: a new scene, and a camera that frames it
+                    scene = ComposedScene(recording, chosen)
+                    renderer.show(scene)
+                    renderer.frame_all()
             showing = flash if now < flash_until else ""
             key = (shown_file, playback.frame_index, showing)
             if key != drawn:
@@ -78,17 +91,6 @@ def export(
             if progress is not None:
                 progress(index + 1, total)
     return total
-
-
-def _scene_for(
-    previous: ComposedScene, recording: Recording, worlds: np.ndarray
-) -> ComposedScene:
-    """The next file's scene: the previous composite when it fits, else a new one."""
-    if previous.fits(recording, worlds):
-        previous.show(recording, worlds)
-        previous.set_highlight(0)
-        return previous
-    return ComposedScene(recording, worlds)
 
 
 def _font_scale(height: int) -> int:

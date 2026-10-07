@@ -59,6 +59,9 @@ class SceneRenderer:
     ) -> None:
         self.camera = mujoco.MjvCamera()
         self.option = mujoco.MjvOption()
+        # Sites mark points for sensors and attachments; their copies would be
+        # drawn opaque in every ghost, so none is drawn.
+        self.option.sitegroup[:] = 0
         self.markers_visible = True
         self.follow = False
         self.scene: ComposedScene | None = None
@@ -108,8 +111,7 @@ class SceneRenderer:
         """Draw the scene as posed now, with the overlay unless ``hud`` is off."""
         scene = self.scene
         if self.follow:
-            self.camera.type = mujoco.mjtCamera.mjCAMERA_TRACKING
-            self.camera.trackbodyid = scene.root_body(scene.highlight)
+            self.camera.lookat[:] = scene.world_centre(scene.highlight)
         mujoco.mjv_updateScene(
             scene.model,
             scene.data,
@@ -144,7 +146,6 @@ class SceneRenderer:
             points.extend(markers.reshape(-1, 3))
         low, high = np.min(points, axis=0), np.max(points, axis=0)
         self.follow = False
-        self.camera.type = mujoco.mjtCamera.mjCAMERA_FREE
         self.camera.lookat[:] = (low + high) / 2
         spread = np.linalg.norm(high - low)
         self.camera.distance = 0.8 * spread + 1.2 * scene.model.stat.extent
@@ -154,14 +155,16 @@ class SceneRenderer:
     def centre_on_highlight(self) -> None:
         """Look at the highlighted world, keeping the distance and angle."""
         self.follow = False
-        self.camera.type = mujoco.mjtCamera.mjCAMERA_FREE
         self.camera.lookat[:] = self.scene.world_centre(self.scene.highlight)
 
     def set_follow(self, follow: bool) -> None:
-        """Track the highlighted world's centre of mass, or stop where it is."""
+        """Keep looking at the highlighted world's centre of mass, or stop there.
+
+        The free camera's look-at point moves with the world each frame. That
+        is what MuJoCo's tracking camera does for one body; a world can have
+        several root bodies.
+        """
         self.follow = follow
-        if not follow:  # the tracking camera left its last look-at point behind
-            self.camera.type = mujoco.mjtCamera.mjCAMERA_FREE
 
     def move_camera(self, action: int, dx: float, dy: float) -> None:
         """Rotate, pan, or zoom by a mouse motion, as fractions of the height."""

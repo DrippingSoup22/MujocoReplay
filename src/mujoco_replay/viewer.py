@@ -66,6 +66,7 @@ class Viewer:
         self.scene = ComposedScene(recordings[0], worlds[0])
         self.renderer = SceneRenderer(self.scene, font_scale=_font_scale(window))
         self._shown_file = 0
+        self._passed: list[str] = []  # events passed, not yet flashed
         self._flash = ""
         self._flash_until = 0.0
         self._cursor = glfw.get_cursor_pos(window)
@@ -79,9 +80,13 @@ class Viewer:
         self.playback.sync(time.monotonic())
         while not glfw.window_should_close(self.window):
             glfw.poll_events()
-            self._show_events(self.playback.advance(time.monotonic()))
+            self._passed += self.playback.advance(time.monotonic())
             if self.playback.file_index != self._shown_file:
                 self._show_file()
+            if self._passed:  # timed from now, so that composing cannot eat it
+                self._flash = "  ".join(self._passed)
+                self._flash_until = time.monotonic() + FLASH_SECONDS
+                self._passed = []
             self.scene.set_frame(self.playback.frame_index)
             width, height = glfw.get_framebuffer_size(self.window)
             if not width or not height:  # minimised
@@ -119,11 +124,6 @@ class Viewer:
         glfw.set_window_title(self.window, f"MujocoReplay - {recording.title}")
         self.playback.sync(time.monotonic())  # composing may have taken a while
 
-    def _show_events(self, labels: list[str]) -> None:
-        if labels:
-            self._flash = "  ".join(labels)
-            self._flash_until = time.monotonic() + FLASH_SECONDS
-
     def _on_key(self, window, key: int, scancode: int, action: int, mods: int) -> None:
         stepping = key in (glfw.KEY_RIGHT, glfw.KEY_LEFT)
         if action == glfw.RELEASE or (action == glfw.REPEAT and not stepping):
@@ -132,7 +132,7 @@ class Viewer:
         if key == glfw.KEY_SPACE:
             playback.toggle()
         elif key == glfw.KEY_RIGHT:
-            self._show_events(playback.step(1))
+            self._passed += playback.step(1)
         elif key == glfw.KEY_LEFT:
             playback.step(-1)
         elif key == glfw.KEY_UP:
