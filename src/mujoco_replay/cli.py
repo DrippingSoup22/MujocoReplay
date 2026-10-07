@@ -13,7 +13,7 @@ import numpy as np
 
 from mujoco_replay.recording import Recording, RecordingError, read_recording
 from mujoco_replay.selection import DEFAULT_WORLDS, MAX_WORLDS, choose_worlds
-from mujoco_replay.settings import load_settings, save_settings
+from mujoco_replay.settings import load_settings, save_settings, user_folder
 
 
 def main(arguments: list[str] | None = None) -> int:
@@ -32,10 +32,11 @@ def main(arguments: list[str] | None = None) -> int:
             for recording, path in zip(recordings, options.files, strict=True)
         ]
         size = (options.width or 1280, options.height or 720)
+        settings = load_settings()
+        cache = user_folder("cache") if settings.cache else None
         if options.command == "view":
             from mujoco_replay import viewer
 
-            settings = load_settings()
             if options.mode:
                 settings = settings.with_mode(options.mode)
                 save_settings(settings)
@@ -46,6 +47,7 @@ def main(arguments: list[str] | None = None) -> int:
                 hud=not options.no_hud,
                 size=size,
                 graphics=settings.graphics,
+                cache=cache,
             )
             return 0
         try:
@@ -66,6 +68,7 @@ def main(arguments: list[str] | None = None) -> int:
             size,
             hud=not options.no_hud,
             progress=_report_progress,
+            cache=cache,
         )
         print(f"wrote {options.out}: {frames} frames, {frames / options.fps:.1f} s")
         return 0

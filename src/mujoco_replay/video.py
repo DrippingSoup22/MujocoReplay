@@ -36,6 +36,7 @@ def export(
     size: tuple[int, int] = (1280, 720),
     hud: bool = True,
     progress: Callable[[int, int], None] | None = None,
+    cache: Path | None = None,
 ) -> int:
     """Write the playlist to ``path`` as an MP4; return the video frames written.
 
@@ -43,7 +44,7 @@ def export(
     first. The size is rounded down to even numbers, as the encoder needs.
     When the last file ends with an event, the last frame is held while the
     event flashes. ``progress``, when given, is called with the frames done
-    and the total.
+    and the total. ``cache`` is the composed-scene cache folder, if any.
     """
     width, height = size[0] // 2 * 2, size[1] // 2 * 2
     recorded = sum(recording.frame_count for recording in recordings)
@@ -57,7 +58,7 @@ def export(
     with ExitStack() as cleanup:  # releases in reverse order, also on errors
         context = offscreen_context(width, height)
         cleanup.callback(context.free)
-        scene = ComposedScene(recordings[0], worlds[0])
+        scene = ComposedScene(recordings[0], worlds[0], cache)
         renderer = SceneRenderer(scene, (width, height), _font_scale(height))
         cleanup.callback(renderer.close)
         writer = cleanup.enter_context(
@@ -78,7 +79,7 @@ def export(
                     scene.set_highlight(0)
                     renderer.show(scene)
                 else:  # another model: a new scene, and a camera that frames it
-                    scene = ComposedScene(recording, chosen)
+                    scene = ComposedScene(recording, chosen, cache)
                     renderer.show(scene)
                     renderer.frame_all()
             showing = flash if now < flash_until else ""

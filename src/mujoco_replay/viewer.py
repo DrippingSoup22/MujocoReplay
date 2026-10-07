@@ -7,6 +7,7 @@ The keys and the mouse are listed in docs/design.md.
 """
 
 import time
+from pathlib import Path
 
 import glfw
 import mujoco
@@ -28,6 +29,7 @@ def run(
     hud: bool = True,
     size: tuple[int, int] = (1280, 720),
     graphics: Graphics = PERFORMANCE,
+    cache: Path | None = None,
 ) -> None:
     """Open the window and play the recordings until it is closed.
 
@@ -43,7 +45,9 @@ def run(
             raise RuntimeError("GLFW cannot open a window with OpenGL")
         glfw.make_context_current(window)
         glfw.swap_interval(1)
-        Viewer(window, recordings, worlds, seconds_per_frame, hud, graphics).loop()
+        Viewer(
+            window, recordings, worlds, seconds_per_frame, hud, graphics, cache
+        ).loop()
     finally:
         glfw.terminate()
 
@@ -59,14 +63,16 @@ class Viewer:
         seconds_per_frame: float,
         hud: bool,
         graphics: Graphics,
+        cache: Path | None,
     ) -> None:
         self.window = window
+        self.cache = cache
         self.recordings = recordings
         self.worlds = worlds
         self.hud = hud
         self.setup = False
         self.playback = Playback(recordings, seconds_per_frame, time.monotonic())
-        self.scene = ComposedScene(recordings[0], worlds[0])
+        self.scene = ComposedScene(recordings[0], worlds[0], cache)
         self.renderer = SceneRenderer(
             self.scene, font_scale=_font_scale(window), graphics=graphics
         )
@@ -119,7 +125,7 @@ class Viewer:
             previous.show(recording, worlds)
             self.renderer.show(previous)  # keeps the context; makes room for markers
         else:
-            self.scene = ComposedScene(recording, worlds)
+            self.scene = ComposedScene(recording, worlds, self.cache)
             self.scene.set_ghosts_visible(previous.ghosts_visible)
             self.renderer.show(self.scene)
             self.renderer.frame_all()

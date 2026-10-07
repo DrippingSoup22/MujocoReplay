@@ -10,10 +10,19 @@ body is; nothing is simulated. The highlighted world keeps the model's colours
 and the others are grey ghosts. docs/design.md explains each step.
 """
 
+import hashlib
+import os
+from pathlib import Path
+
 import mujoco
 import numpy as np
 
 from mujoco_replay.recording import Recording, RecordingError
+
+# Raised whenever the composition changes what it compiles, so that composites
+# cached by an older version are not used; and how many composites are kept.
+CACHE_VERSION = 1
+CACHE_ENTRIES = 16
 
 # The ghosts' colour. A ghost shape's alpha is this alpha times the shape's own,
 # so that a shape the model hides stays hidden.
@@ -50,37 +59,39 @@ class ComposedScene:
     ``ghost_geoms`` marks the shapes currently drawn as ghosts.
     """
 
-    def __init__(self, recording: Recording, worlds: np.ndarray) -> None:
+    def __init__(
+        self, recording: Recording, worlds: np.ndarray, cache: Path | None = None
+    ) -> None:
+        """Compose the scene, or load it from the ``cache`` folder when given.
+
+        ``cached`` tells which happened. The cache holds compiled composites
+        in MuJoCo's binary format, keyed by the model, the replicated bodies,
+        the number of copies, and the MuJoCo version.
+        """
         self.recording = recording
         self.worlds = np.asarray(worlds, dtype=np.int64)
         self.highlight = 0
         self.ghosts_visible = True
         self.frame_index = 0
 
-        composite = self._parse()
-        original = self._compile(composite, "model_xml")
+        spec = self._parse()
+        original = self._compile(spec, "model_xml")
         if original.nq != recording.position_count:
             raise self._error(
                 f"qpos has {recording.position_count} positions per world, "
                 f"but the model in model_xml has {original.nq}"
             )
-        roots = self._replicated_roots(composite)
-        bodies, joints = _subtree_names(composite, roots)
-
-        # The parsed model becomes the static scene, then receives the copies.
-        _delete_unused_parts(composite)
-        for name in roots:
-            composite.delete(composite.body(name))
-        static = {body.name for body in composite.bodies}
+        roots = self._replicated_roots(spec)
+        bodies, joints = _subtree_names(spec, roots)
         prefixes = [f"w{copy}_" for copy in range(len(self.worlds))]
-        for prefix in prefixes:
-            source = self._parse()
-            # Lights on the moving bodies light the scene once, from the best world.
-            _reduce_to(source, roots, keep_lights=prefix == "w0_")
-            frame = composite.worldbody.add_frame()
-            composite.attach(source, frame=frame, prefix=prefix)
-        _keep_targets(composite, set(bodies), static, prefixes)
-        self.model = self._compile(composite, "the composed scene")
+        stored = None
+        if cache is not None:
+            stored = cache / f"{_cache_key(recording, roots, len(prefixes))}.mjb"
+        self.model = _load_composite(stored)
+        self.cached = self.model is not None
+        if self.model is None:
+            self.model = self._compose(spec, roots, bodies, prefixes)
+            _save_composite(self.model, stored)
         self.data = mujoco.MjData(self.model)
 
         self._map_positions(original, joints)
@@ -161,6 +172,27 @@ class ComposedScene:
         if not mass.sum() > 0:  # massless bodies: their mean position instead
             return self.data.xpos[roots].mean(axis=0)
         return mass @ self.data.subtree_com[roots] / mass.sum()
+
+    def _compose(
+        self,
+        spec: mujoco.MjSpec,
+        roots: list[str],
+        bodies: list[str],
+        prefixes: list[str],
+    ) -> mujoco.MjModel:
+        """The composite: ``spec`` as the static scene, plus a copy per prefix."""
+        _delete_unused_parts(spec)
+        for name in roots:
+            spec.delete(spec.body(name))
+        static = {body.name for body in spec.bodies}
+        for prefix in prefixes:
+            source = self._parse()
+            # Lights on the moving bodies light the scene once, from the best world.
+            _reduce_to(source, roots, keep_lights=prefix == "w0_")
+            frame = spec.worldbody.add_frame()
+            spec.attach(source, frame=frame, prefix=prefix)
+        _keep_targets(spec, set(bodies), static, prefixes)
+        return self._compile(spec, "the composed scene")
 
     def _parse(self) -> mujoco.MjSpec:
         """A fresh spec of the recorded model, with every body and joint named."""
@@ -281,6 +313,45 @@ def _subtree_names(spec: mujoco.MjSpec, roots: list[str]) -> tuple[list[str], se
         bodies.extend(body.name for body in root.find_all(mujoco.mjtObj.mjOBJ_BODY))
         joints.update(joint.name for joint in root.find_all(mujoco.mjtObj.mjOBJ_JOINT))
     return bodies, joints
+
+
+def _cache_key(recording: Recording, roots: list[str], copies: int) -> str:
+    """A name for one composite: the same model and copies give the same name."""
+    digest = hashlib.sha256()
+    parts = (CACHE_VERSION, mujoco.__version__, recording.model_xml, roots, copies)
+    for part in parts:
+        digest.update(repr(part).encode())
+    for name in sorted(recording.assets):
+        digest.update(name.encode() + recording.assets[name])
+    return digest.hexdigest()[:32]
+
+
+def _load_composite(path: Path | None) -> mujoco.MjModel | None:
+    """A cached composite, or nothing when there is none or it cannot be read."""
+    if path is None or not path.exists():
+        return None
+    try:
+        model = mujoco.MjModel.from_binary_path(str(path))
+        path.touch()  # recently used: kept when the cache is trimmed
+    except (OSError, ValueError):
+        return None
+    return model
+
+
+def _save_composite(model: mujoco.MjModel, path: Path | None) -> None:
+    """Store a composite and trim the cache; a failure costs only the cache."""
+    if path is None:
+        return
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        partial = path.with_suffix(".partial")
+        mujoco.mj_saveModel(model, str(partial), None)
+        os.replace(partial, path)  # never a half-written file under the real name
+        stored = sorted(path.parent.glob("*.mjb"), key=os.path.getmtime)
+        for old in stored[:-CACHE_ENTRIES]:
+            old.unlink()
+    except (OSError, ValueError):
+        pass
 
 
 def _keep_targets(

@@ -125,6 +125,24 @@ def test_a_worlds_centre_is_the_centre_of_mass_of_all_its_root_bodies(
     assert np.allclose(scene.world_centre(0), expected)
 
 
+def test_a_cached_composite_poses_exactly_like_a_freshly_composed_one(
+    make_recording, tmp_path
+):
+    recording = make_recording(frames=2, worlds=3)
+    fresh = ComposedScene(recording, np.arange(3), cache=tmp_path)
+    cached = ComposedScene(recording, np.arange(3), cache=tmp_path)
+    for scene in (fresh, cached):
+        scene.set_frame(1)
+        scene.set_highlight(2)
+
+    assert not fresh.cached and cached.cached
+    assert np.array_equal(cached.data.xpos, fresh.data.xpos)
+    assert np.array_equal(cached.model.geom_rgba, fresh.model.geom_rgba)
+    (stored,) = tmp_path.glob("*.mjb")
+    stored.write_bytes(b"not a model")  # a damaged entry is composed again
+    assert not ComposedScene(recording, np.arange(3), cache=tmp_path).cached
+
+
 def test_another_recording_of_the_same_model_is_shown_on_the_same_composite(
     make_recording,
 ):
