@@ -14,7 +14,7 @@ def window(opengl):
     """A hidden window with a current OpenGL context."""
     glfw.init()
     glfw.window_hint(glfw.VISIBLE, False)
-    window = glfw.create_window(320, 240, "test", None, None)
+    window = glfw.create_window(640, 720, "test", None, None)
     glfw.default_window_hints()
     glfw.make_context_current(window)
     yield window
@@ -23,9 +23,10 @@ def window(opengl):
 
 @pytest.fixture
 def saved(tmp_path, monkeypatch):
-    """The settings folder, in the test's own folder."""
+    """The settings folder, in the test's own folder, on every system."""
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
 
 
 def test_dropped_recordings_play_with_the_settings_count_of_worlds(
@@ -115,4 +116,63 @@ def test_fewer_worlds_from_a_count_between_steps_goes_to_the_step_below(window, 
     viewer._act("fewer")
 
     assert viewer.settings.worlds == load_settings().worlds == 16
+    viewer.renderer.close()
+
+
+def press(viewer, window, x: float, y: float, action) -> None:
+    """A left click's press or release at framebuffer pixels from the bottom left."""
+    viewer._on_cursor(window, x, glfw.get_framebuffer_size(window)[1] - y)
+    viewer._on_button(window, glfw.MOUSE_BUTTON_LEFT, action, 0)
+
+
+def test_a_panel_button_acts_on_release_over_it_and_not_after_a_drag_away(
+    window, saved
+):
+    viewer = Viewer(window, Settings(cache=False), 0.3)
+    viewer._draw()
+    box = next(box for box in viewer.boxes if box.action == "quality")
+    middle = (box.x + box.width / 2, box.y + box.height / 2)
+
+    press(viewer, window, *middle, glfw.PRESS)
+    press(viewer, window, 600, 600, glfw.RELEASE)  # dragged off the button
+    assert viewer.settings.mode == "performance"
+    press(viewer, window, *middle, glfw.PRESS)
+    press(viewer, window, *middle, glfw.RELEASE)
+    assert viewer.settings.mode == "quality"
+    viewer.renderer.close()
+
+
+def test_the_next_file_highlights_its_best_world_unless_one_was_picked(
+    window, make_recording
+):
+    ids = [10, 11, 12]
+    first = make_recording(worlds=3, score=[3, 2, 1], world_ids=ids, seed=1)
+    second = make_recording(worlds=3, score=[1, 2, 3], world_ids=ids, seed=2)
+    viewer = Viewer(window, Settings(worlds=3, cache=False), 0.3)
+    viewer.load([first, second])
+
+    def highlighted() -> int:
+        scene = viewer.scene
+        return int(scene.recording.world_ids[scene.worlds[scene.highlight]])
+
+    viewer.playback.next_file()
+    viewer._show_file()
+    assert highlighted() == 12  # the second file's best
+    viewer._act("next world")
+    viewer.playback.previous_file()
+    viewer._show_file()
+    assert highlighted() == 11  # the picked world, in the first file too
+    viewer.renderer.close()
+
+
+def test_a_click_on_the_timeline_pauses_at_that_frame(window, make_recording):
+    viewer = Viewer(window, Settings(cache=False), 0.3)
+    viewer.load([make_recording(frames=10)])
+    viewer._draw()
+    left = viewer._inset
+    width = glfw.get_framebuffer_size(window)[0]
+
+    press(viewer, window, left + 0.75 * (width - left), 2, glfw.PRESS)
+
+    assert viewer.playback.frame_index == 7 and not viewer.playback.playing
     viewer.renderer.close()

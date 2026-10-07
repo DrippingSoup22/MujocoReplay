@@ -104,6 +104,12 @@ class Playback:
     def default_speed(self) -> None:
         self._set_speed(DEFAULT_SECONDS_PER_FRAME)
 
+    def seek(self, frame: int) -> None:
+        """Pause at a frame of the current file, as a click on the timeline does."""
+        self.playing = False
+        self._owed = 0.0
+        self.frame_index = min(max(frame, 0), self.recording.frame_count - 1)
+
     def first_frame(self) -> None:
         self.frame_index = 0
 

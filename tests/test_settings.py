@@ -33,13 +33,14 @@ def test_saved_settings_come_back_and_a_bad_file_gives_the_defaults(tmp_path):
 
 def test_a_wrong_value_falls_back_to_its_default_alone(tmp_path):
     path = tmp_path / "settings.json"
-    saved = {"worlds": 1000, "cache": "yes", "frame_rate": True}
+    saved = {"worlds": 1000, "cache": "yes", "frame_rate": True, "ghosts": "bright"}
     saved["graphics"] = {"resolution": 60, "shadows": True}
     path.write_text(json.dumps(saved))
 
     settings = load_settings(path)
 
     assert (settings.worlds, settings.cache, settings.frame_rate) == (16, True, True)
+    assert settings.ghosts == "normal"
     assert settings.graphics.resolution == PERFORMANCE.resolution
     assert settings.graphics.shadows
 

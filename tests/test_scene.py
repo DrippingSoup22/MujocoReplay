@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from mujoco_replay.recording import Recording, RecordingError
-from mujoco_replay.scene import GHOST_RGBA, ComposedScene
+from mujoco_replay.scene import ComposedScene, _cache_key
 
 CENTIPEDE_MODEL = (
     Path(__file__).resolve().parents[2] / "Centipede" / "models" / "assembly_v2.xml"
@@ -89,7 +89,7 @@ def test_ghosts_are_grey_and_the_highlight_keeps_the_models_colours(
 
     def ghost(copy: int) -> bool:
         ids = shapes(copy)
-        return np.allclose(model.geom_rgba[ids], GHOST_RGBA) and bool(
+        return np.allclose(model.geom_rgba[ids], scene.ghost_rgba) and bool(
             (model.geom_matid[ids] == -1).all()
         )
 
@@ -187,3 +187,48 @@ def test_a_recording_that_does_not_fit_its_model_is_rejected(
 
     with pytest.raises(RecordingError, match=f"probe: {problem}"):
         ComposedScene(recording, np.arange(2))
+
+
+def test_ghosts_fade_as_more_worlds_are_drawn_and_hidden_ones_vanish(make_recording):
+    few = ComposedScene(make_recording(worlds=4), np.arange(4))
+    many = ComposedScene(make_recording(worlds=32), np.arange(32))
+
+    assert few.ghost_rgba[3] == pytest.approx(0.15)
+    assert many.ghost_rgba[3] == pytest.approx(0.075)  # with the square root of 8/32
+    many.set_ghosts("hidden")
+    assert not many.model.geom_rgba[many.ghost_geoms, 3].any()
+
+
+def test_a_model_that_fuses_bodies_without_joints_still_composes(make_recording):
+    model_xml = """
+    <mujoco><compiler fusestatic="true"/>
+      <worldbody>
+        <geom name="floor" type="plane" size="1 1 0.1"/>
+        <body name="robot" pos="0 0 0.5"><freejoint/>
+          <geom type="box" size="0.2 0.1 0.05"/>
+          <body name="head" pos="0.25 0 0"><geom type="sphere" size="0.06"/></body>
+        </body>
+      </worldbody>
+      <sensor><framepos objtype="body" objname="head"/></sensor>
+    </mujoco>"""
+    recording = make_recording(worlds=2, model_xml=model_xml)
+
+    scene = ComposedScene(recording, np.arange(2))
+
+    original = mujoco.MjModel.from_xml_string(model_xml)
+    alone = mujoco.MjData(original)
+    alone.qpos[:] = recording.qpos[0, 1]
+    mujoco.mj_kinematics(original, alone)
+    robot = scene.model.body("w1_robot").id
+    assert np.allclose(scene.data.xpos[robot], alone.xpos[original.body("robot").id])
+    assert scene.model.body("w1_head").id > 0
+
+
+def test_assets_that_differ_only_in_where_one_ends_get_different_composites(
+    small_model,
+):
+    def key(assets):
+        recording = Recording(small_model, 0.02, np.zeros((1, 1, 9)), assets=assets)
+        return _cache_key(recording, ["robot"], 1)
+
+    assert key({"a.obj": b"T", "b.obj": b"C"}) != key({"a.obj": b"Tb.objC"})

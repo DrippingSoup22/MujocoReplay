@@ -18,7 +18,7 @@ def test_a_frame_shows_the_scene_and_changes_when_the_ghosts_hide(
 
     renderer.render(160, 120, status="frame 1 / 1")
     with_ghosts = renderer.read_pixels(160, 120)
-    scene.set_ghosts_visible(False)
+    scene.set_ghosts("hidden")
     renderer.render(160, 120, status="frame 1 / 1")
     without_ghosts = renderer.read_pixels(160, 120)
     renderer.close()
@@ -71,3 +71,36 @@ def test_the_window_draws_a_share_of_its_pixels_and_scales_it_to_fill(
     window.close()
 
     assert np.abs(drawn - expected).mean() < 12  # the same picture, only softer
+
+
+def test_a_point_on_a_world_picks_that_world_and_the_sky_none(
+    gl_context, make_recording
+):
+    recording = make_recording(frames=1, worlds=2)
+    recording.qpos[0, :, 1:4] = [(0, -2, 0.5), (0, 2, 0.5)]  # the robots apart
+    scene = ComposedScene(recording, np.arange(2))
+    renderer = SceneRenderer(scene, offscreen_size=(160, 120))
+    renderer.camera.lookat[:] = scene.data.xpos[scene.model.body("w1_robot").id]
+    renderer.camera.distance, renderer.camera.elevation = 1.0, -89.0
+
+    renderer.render(160, 120, hud=False)
+
+    assert renderer.copy_at(80, 60, 160, 120, 0) == 1
+    renderer.camera.elevation = -2.0  # the middle of the picture is sky now
+    renderer.render(160, 120, hud=False)
+    assert renderer.copy_at(80, 110, 160, 120, 0) is None
+    renderer.close()
+
+
+def test_framing_leaves_out_a_world_whose_poses_diverged(gl_context, make_recording):
+    recording = make_recording(frames=1, worlds=3)
+    recording.qpos[0, 2] = np.nan
+    scene = ComposedScene(recording, np.arange(3))
+    renderer = SceneRenderer(scene, offscreen_size=(64, 48))
+
+    scene.set_highlight(2)
+    renderer.centre_on_highlight()
+
+    assert np.isfinite(renderer.camera.lookat).all()
+    assert np.isfinite(renderer.camera.distance)
+    renderer.close()

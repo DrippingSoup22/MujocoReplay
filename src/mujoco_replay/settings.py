@@ -19,6 +19,8 @@ from mujoco_replay.selection import DEFAULT_WORLDS, MAX_WORLDS
 
 # Shares of the window's width and height that are drawn, then scaled up.
 RESOLUTIONS = (50, 75, 100)
+# How strongly the worlds other than the highlighted one are drawn.
+GHOST_STRENGTHS = ("hidden", "faint", "normal", "strong")
 
 
 @dataclass(frozen=True)
@@ -51,6 +53,7 @@ class Settings:
 
     graphics: Graphics = PERFORMANCE
     worlds: int = DEFAULT_WORLDS
+    ghosts: str = "normal"  # one of GHOST_STRENGTHS
     cache: bool = True
     frame_rate: bool = False
     panel: bool = True
@@ -116,6 +119,8 @@ def load_settings(path: Path | None = None) -> Settings:
     }
     if not 1 <= values.get("worlds", DEFAULT_WORLDS) <= MAX_WORLDS:
         values.pop("worlds")
+    if values.get("ghosts", "normal") not in GHOST_STRENGTHS:
+        values.pop("ghosts")
     return replace(defaults, graphics=replace(PERFORMANCE, **chosen), **values)
 
 

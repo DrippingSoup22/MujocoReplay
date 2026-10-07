@@ -2,12 +2,11 @@
 
 from mujoco_replay.ui import (
     Buttons,
-    Choice,
     Panel,
     Section,
     Stepper,
-    Switch,
     Title,
+    Toggles,
     action_at,
 )
 
@@ -17,8 +16,8 @@ ROWS = [
     Buttons((("Open", "open"),)),
     Section("Worlds"),
     Stepper("Shown", "16 of 32", "fewer", "more"),
-    Switch("Ghosts", True, "ghosts"),
-    Choice((("Quality", "quality", False), ("Performance", "performance", True))),
+    Toggles((("Ghosts", "ghosts", True), ("Markers", "markers", False))),
+    Toggles((("Quality", "quality", False), ("Performance", "performance", True))),
 ]
 
 
@@ -36,15 +35,17 @@ def test_rows_stack_down_from_the_top_inside_the_panel():
 
     assert all(box.x >= 0 and box.x + box.width <= Panel.width(LINE) for box in boxes)
     assert all(box.y >= 0 and box.y + box.height <= 600 for box in boxes)
-    heights = [box.y for box in boxes if box.kind in ("title", "section", "switch")]
+    rows = [box for box in boxes if box.kind in ("title", "section") or box.action]
+    heights = [box.y for box in rows if box.action not in ("more", "markers")]
     assert heights == sorted(heights, reverse=True)
-    assert next(box for box in boxes if box.action == "performance").kind == "selected"
+    lit = {box.action for box in boxes if box.kind == "lit"}
+    assert lit == {"ghosts", "performance"}
 
 
 def test_a_click_names_the_action_of_the_box_under_it():
     boxes = Panel().layout(ROWS, 600, LINE, measure)
 
-    for action in ("open", "fewer", "more", "ghosts", "quality", "performance"):
+    for action in ("open", "fewer", "more", "ghosts", "markers", "performance"):
         assert action_at(boxes, *centre(boxes, action)) == action
     assert action_at(boxes, 5, 5) is None  # below the last row
     assert action_at(boxes, Panel.width(LINE) + 10, 590) is None  # beside the panel
@@ -52,11 +53,11 @@ def test_a_click_names_the_action_of_the_box_under_it():
 
 def test_rows_that_do_not_fit_scroll_as_far_as_the_last():
     panel = Panel()
-    switches = [Switch(f"switch {index}", False, f"s{index}") for index in range(40)]
+    rows = [Toggles(((f"toggle {index}", f"t{index}", False),)) for index in range(40)]
 
-    first = panel.layout(switches, 300, LINE, measure)
+    first = panel.layout(rows, 300, LINE, measure)
     panel.scroll_by(100_000)
-    last = panel.layout(switches, 300, LINE, measure)
+    last = panel.layout(rows, 300, LINE, measure)
 
     assert first[0].y + first[0].height > 300 - LINE  # the first row at the top
     assert 0 <= last[-1].y < LINE  # the last row at the bottom, and no further

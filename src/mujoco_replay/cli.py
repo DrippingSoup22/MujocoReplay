@@ -8,15 +8,21 @@ saved settings supply what the command line leaves out; ``--mode`` and
 """
 
 import argparse
+import glob
 import sys
 from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 
-from mujoco_replay.recording import Recording, RecordingError, read_recording
+from mujoco_replay.recording import (
+    Recording,
+    RecordingError,
+    in_name_order,
+    read_recording,
+)
 from mujoco_replay.selection import MAX_WORLDS, choose_worlds
-from mujoco_replay.settings import load_settings, save_settings, user_folder
+from mujoco_replay.settings import PRESETS, load_settings, save_settings, user_folder
 
 
 def main(arguments: list[str] | None = None) -> int:
@@ -26,6 +32,7 @@ def main(arguments: list[str] | None = None) -> int:
     if not raw or raw[0] not in ("view", "render", "-h", "--help"):
         raw.insert(0, "view")
     options = parser.parse_args(raw)
+    options.files = _expand(options.files)
     if options.command == "render" and not Path(options.out).parent.is_dir():
         parser.error(f"--out: the folder {Path(options.out).parent} does not exist")
     settings = load_settings()
@@ -37,6 +44,8 @@ def main(arguments: list[str] | None = None) -> int:
         save_settings(settings)  # remembered, as changes in the panel are
     count = options.worlds or settings.worlds
     size = (options.width or 1280, options.height or 720)
+    if options.command == "view" and not (options.width or options.height):
+        size = None  # the window takes most of the screen
     try:
         recordings = [read_recording(path) for path in options.files]
         worlds = [
@@ -74,10 +83,11 @@ def main(arguments: list[str] | None = None) -> int:
             hud=not options.no_hud,
             progress=_report_progress,
             cache=user_folder("cache") if settings.cache else None,
+            graphics=PRESETS[options.mode or "quality"],
         )
         print(f"wrote {options.out}: {frames} frames, {frames / options.fps:.1f} s")
         return 0
-    except (RecordingError, RuntimeError) as error:
+    except (RecordingError, RuntimeError, OSError) as error:  # OSError: --out
         print(f"mujoco-replay: {error}", file=sys.stderr)
         return 1
 
@@ -132,9 +142,27 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("quality", "performance"),
         help="the graphics preset, remembered for the next runs",
     )
+    render.add_argument(
+        "--mode",
+        choices=("quality", "performance"),
+        help="the graphics preset; quality unless given",
+    )
     render.add_argument("--out", required=True, help="the MP4 file to write")
     render.add_argument("--fps", type=_positive(int), default=30)
     return parser
+
+
+def _expand(paths: list[str]) -> list[str]:
+    """The files with wildcards expanded, as Windows' shells leave them.
+
+    A pattern's files come in the order of their names; a pattern that
+    matches nothing stays as it is, to be reported as a missing file.
+    """
+    expanded = []
+    for path in paths:
+        matches = glob.glob(path) if not Path(path).exists() else []
+        expanded += in_name_order(matches) if matches else [path]
+    return expanded
 
 
 def _report_progress(done: int, total: int) -> None:

@@ -12,6 +12,7 @@ next to nothing. GLFW opens the window and delivers the input; only the
 import math
 import subprocess
 import sys
+import tempfile
 import time
 from collections import deque
 from dataclasses import fields, replace
@@ -22,15 +23,28 @@ import numpy as np
 
 from mujoco_replay import ui
 from mujoco_replay.playback import DEFAULT_SECONDS_PER_FRAME, Playback
-from mujoco_replay.recording import Recording, RecordingError, read_recording
-from mujoco_replay.render import SceneRenderer
+from mujoco_replay.recording import (
+    Recording,
+    RecordingError,
+    in_name_order,
+    read_recording,
+)
+from mujoco_replay.render import SceneRenderer, setup_lines, world_rank
 from mujoco_replay.scene import ComposedScene
 from mujoco_replay.selection import MAX_WORLDS, choose_worlds, world_counts
-from mujoco_replay.settings import RESOLUTIONS, Settings, save_settings, user_folder
+from mujoco_replay.settings import (
+    GHOST_STRENGTHS,
+    RESOLUTIONS,
+    Settings,
+    save_settings,
+    user_folder,
+)
 
 FLASH_SECONDS = 1.0
 MESSAGE_SECONDS = 6.0
 IDLE_WAIT = 0.5  # the longest the loop sleeps between looks at the clock
+SCREEN_SHARE = 0.85  # of the screen's free area the window takes, unless sized
+DOUBLE_CLICK = 0.4  # seconds between the presses of a double-click, at most
 # The world shown before any recording: a floor under a sky, as Centipede's.
 EMPTY_WORLD = """
 <mujoco model="empty world">
@@ -50,6 +64,9 @@ EMPTY_WORLD = """
 """
 # The file picker, run in a process of its own; it prints the chosen paths.
 PICKER = """
+import sys
+sys.stdout.reconfigure(encoding="utf-8")
+sys.stderr.reconfigure(encoding="utf-8")
 import tkinter
 from tkinter import filedialog
 root = tkinter.Tk()
@@ -62,31 +79,58 @@ paths = filedialog.askopenfilenames(
 )
 print("\\n".join(paths))
 """
+# Keys that type no character.
 KEYS = {
     glfw.KEY_SPACE: "play",
     glfw.KEY_RIGHT: "step",
     glfw.KEY_LEFT: "back",
     glfw.KEY_UP: "faster",
     glfw.KEY_DOWN: "slower",
-    glfw.KEY_0: "default speed",
-    glfw.KEY_KP_0: "default speed",
     glfw.KEY_HOME: "first",
     glfw.KEY_END: "last",
-    glfw.KEY_R: "restart",
-    glfw.KEY_N: "next file",
-    glfw.KEY_P: "previous file",
-    glfw.KEY_B: "next world",
-    glfw.KEY_G: "ghosts",
-    glfw.KEY_M: "markers",
-    glfw.KEY_H: "overlay",
-    glfw.KEY_I: "setup",
-    glfw.KEY_C: "centre",
-    glfw.KEY_F: "follow",
-    glfw.KEY_O: "open",
     glfw.KEY_TAB: "panel",
     glfw.KEY_ESCAPE: "quit",
-    glfw.KEY_Q: "quit",
+    glfw.KEY_F1: "keys",
 }
+# Keys by the character they type, so that they follow the keyboard's layout;
+# a capital letter does what its small letter does, unless listed.
+CHARACTERS = {
+    "0": "default speed",
+    "r": "restart",
+    "n": "next file",
+    "p": "previous file",
+    "b": "next world",
+    "B": "previous world",
+    "g": "ghosts",
+    "m": "markers",
+    "v": "reset view",
+    "t": "top view",
+    "c": "centre",
+    "f": "follow",
+    "h": "overlay",
+    "i": "setup",
+    "o": "open",
+    "q": "quit",
+    "?": "keys",
+}
+# What F1 shows.
+HELP = [
+    "Space: play or pause",
+    "Left, Right: one frame back, forward",
+    "Up, Down: faster, slower; 0: default speed",
+    "Home, End: first, last frame; R: restart",
+    "N, P: next, previous file",
+    "B, Shift+B: next, previous world",
+    "Double-click a world: highlight it",
+    "G: ghosts; M: markers",
+    "V: reset the view; T: look from above",
+    "C: centre on the highlight; F: follow it",
+    "Left drag: rotate; with Shift: turn only",
+    "Right drag: pan; wheel or middle drag: zoom",
+    "Click the timeline: go to that frame",
+    "H: overlay; I: setup; O: open recordings",
+    "Tab: panel; F1 or ?: these keys; Q, Esc: quit",
+]
 
 
 def run(
@@ -94,22 +138,28 @@ def run(
     settings: Settings,
     seconds_per_frame: float = DEFAULT_SECONDS_PER_FRAME,
     ids: list[int] | None = None,
-    size: tuple[int, int] = (1280, 720),
+    size: tuple[int, int] | None = None,
     hud: bool = True,
 ) -> None:
     """Open the window, with ``recordings`` if any, until it is closed.
 
     ``ids``, when given, are the producer world ids to draw instead of the
     best of each rank band; the caller has checked that each file has some.
+    Without ``size``, the window takes most of the screen, in its middle.
     ``hud`` off hides the overlay for this run without saving that.
     """
     if not glfw.init():
         raise RuntimeError("GLFW cannot start: the window needs a display")
     try:
         glfw.window_hint(glfw.SAMPLES, 0)  # anti-aliasing is drawn offscreen
+        glfw.window_hint(glfw.VISIBLE, False)  # shown once in its place
+        size, position = _placement(size)
         window = glfw.create_window(*size, "MujocoReplay", None, None)
         if not window:
             raise RuntimeError("GLFW cannot open a window with OpenGL")
+        if position is not None:
+            glfw.set_window_pos(window, *position)
+        glfw.show_window(window)
         glfw.make_context_current(window)
         glfw.swap_interval(1)
         viewer = Viewer(window, settings, seconds_per_frame, hud)
@@ -124,16 +174,21 @@ class FilePicker:
     """The system's file picker, shown by tkinter in a process of its own.
 
     Its own process keeps tkinter's event loop apart from GLFW's, and the
-    window goes on drawing while the picker is open.
+    window goes on drawing while the picker is open. The process writes into
+    files rather than pipes: a pipe it filled before exiting would hold it
+    open for good, and the files take any path as UTF-8.
     """
 
     def __init__(self) -> None:
         flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        self._output, self._errors = (
+            tempfile.TemporaryFile("w+", encoding="utf-8", errors="replace")
+            for _ in range(2)
+        )
         self._process = subprocess.Popen(
             [sys.executable, "-c", PICKER],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
+            stdout=self._output,
+            stderr=self._errors,
             creationflags=flags,
         )
 
@@ -141,7 +196,7 @@ class FilePicker:
         """The chosen paths once the picker has closed; ``None`` while it is open."""
         if self._process.poll() is None:
             return None
-        output, errors = self._process.communicate()
+        output, errors = (self._read(file) for file in (self._output, self._errors))
         if self._process.returncode:
             reason = (errors.strip().splitlines() or ["no reason given"])[-1]
             raise RuntimeError(
@@ -153,6 +208,16 @@ class FilePicker:
     def close(self) -> None:
         if self._process.poll() is None:
             self._process.kill()
+            self._process.wait()
+        self._output.close()
+        self._errors.close()
+
+    @staticmethod
+    def _read(file) -> str:
+        file.seek(0)
+        text = file.read()
+        file.close()
+        return text
 
 
 class Viewer:
@@ -181,19 +246,29 @@ class Viewer:
         self.panel = ui.Panel()
         self.boxes: list[ui.Box] = []
         self.setup = False
+        self.help = False
         self._picker: FilePicker | None = None
         self._dropped: list[str] = []
         self._passed: list[str] = []  # events passed, not yet flashed
         self._flash, self._flash_until = "", 0.0
         self._message, self._message_until = "", 0.0
         self._shown_file = 0
+        self._picked: int | None = None  # the world id the user highlighted
+        self._shown_ghosts = (
+            "normal" if settings.ghosts == "hidden" else settings.ghosts
+        )
         self._dirty = True
         self._cursor = glfw.get_cursor_pos(window)
         self._hovered: str | None = None
+        self._pressed: str | None = None  # the panel action a press began on
         self._dragging = False  # a drag that began on the scene, not the panel
+        self._scrubbing = False  # a drag that began on the timeline
+        self._last_press = (-math.inf, 0.0, 0.0)  # its time and place
+        self._left = self._inset = 0  # where the scene and the overlay begin
         self._draw_seconds: deque[float] = deque(maxlen=30)
         self._actions = self._make_actions()
         glfw.set_key_callback(window, self._on_key)
+        glfw.set_char_callback(window, self._on_char)
         glfw.set_mouse_button_callback(window, self._on_button)
         glfw.set_cursor_pos_callback(window, self._on_cursor)
         glfw.set_scroll_callback(window, self._on_scroll)
@@ -242,6 +317,7 @@ class Viewer:
         if self.playback is not None:
             speed = self.playback.seconds_per_frame
         self.playback = Playback(recordings, speed, time.monotonic())
+        self._picked = None
         self._use(scene, reframe=True)
         self._message = ""
 
@@ -261,11 +337,17 @@ class Viewer:
             return
         context = self.renderer.context
         line = context.charHeight
-        inset = ui.Panel.width(line) if self.settings.panel else 6 * line
+        panel = ui.Panel.width(line) if self.settings.panel else 0
+        self._left, self._inset = panel, panel or 6 * line
         loaded = self.playback is not None
         # While the next file is composed, the scene still shows the last one.
         if loaded and self._shown_file == self.playback.file_index:
             self.scene.set_frame(self.playback.frame_index)
+        side = None
+        if self.help:
+            side = HELP
+        elif loaded and self.setup:
+            side = setup_lines(self.scene.recording.setup) or ["(no setup)"]
         rate, first = self._rate(), not self._draw_seconds
         start = time.perf_counter()
         self.renderer.render(
@@ -274,9 +356,10 @@ class Viewer:
             status=self.playback.status() if loaded else "",
             flash=self._flash,
             hud=loaded and self.settings.overlay,
-            setup=loaded and self.setup,
+            side=side,
             corner=rate,
-            inset=inset,
+            left=self._left,
+            inset=self._inset,
             message=self._message,
             hint="" if loaded else "Open recordings (O), or drop .npz files here",
         )
@@ -318,11 +401,11 @@ class Viewer:
             play = "Pause" if playback.playing else "Play"
             controls = (("|<", "first"), ("<", "back"), (play, "play"))
             controls += ((">", "step"), (">|", "last"))
-            speed = f"{playback.seconds_per_frame:.3g} s/frame"
+            per_frame = f"{playback.seconds_per_frame:.3g} s"
             rows += [
                 ui.Section("Playback"),
                 ui.Buttons(controls),
-                ui.Stepper("Speed", speed, "slower", "faster"),
+                ui.Stepper("Per frame", per_frame, "faster", "slower"),
             ]
             if len(self.recordings) > 1:
                 where = f"{playback.file_index + 1} of {len(self.recordings)}"
@@ -336,35 +419,64 @@ class Viewer:
             rows.append(ui.Stepper("Shown", shown, "fewer", "more"))
         else:  # the worlds named on the command line, whatever the count
             rows.append(ui.Note(f"Shown: {shown}, chosen by id"))
-        if playback is not None:
-            rank = f"rank {self._rank() + 1}"
+        if playback is not None and len(self.scene.worlds) > 1:
+            world = self.scene.worlds[self.scene.highlight]
+            rank = f"rank {world_rank(self.scene.recording, world)[0]:,}"
             rows += [
                 ui.Stepper("Highlight", rank, "previous world", "next world"),
-                ui.Switch("Ghosts", self.scene.ghosts_visible, "ghosts"),
-                ui.Switch("Markers", self.renderer.markers_visible, "markers"),
-                ui.Switch("Follow highlight", self.renderer.follow, "follow"),
+                ui.Stepper("Ghosts", settings.ghosts, "fainter", "stronger"),
+            ]
+        if playback is not None:
+            rows += [
+                ui.Section("View"),
+                ui.Toggles(
+                    (
+                        ("Reset", "reset view", False),
+                        ("Top", "top view", False),
+                        ("Follow", "follow", self.renderer.follow),
+                    )
+                ),
             ]
         mode = settings.mode
-        choices = (
-            ("Quality", "quality", mode == "quality"),
-            ("Performance", "performance", mode == "performance"),
-        )
         resolution = f"{graphics.resolution}%"
         rows += [
             ui.Section("Graphics" + (" (custom)" if mode == "custom" else "")),
-            ui.Choice(choices),
-            ui.Switch("Shadows", graphics.shadows, "shadows"),
-            ui.Switch("Reflections", graphics.reflections, "reflections"),
-            ui.Switch("Anti-aliasing", graphics.antialiasing, "antialiasing"),
-            ui.Switch("Fine shapes", graphics.fine_shapes, "fine shapes"),
+            ui.Toggles(
+                (
+                    ("Quality", "quality", mode == "quality"),
+                    ("Performance", "performance", mode == "performance"),
+                )
+            ),
+            ui.Toggles(
+                (
+                    ("Shadows", "shadows", graphics.shadows),
+                    ("Reflections", "reflections", graphics.reflections),
+                )
+            ),
+            ui.Toggles(
+                (
+                    ("Anti-aliasing", "antialiasing", graphics.antialiasing),
+                    ("Fine shapes", "fine shapes", graphics.fine_shapes),
+                )
+            ),
             ui.Stepper(
                 "Resolution", resolution, "lower resolution", "higher resolution"
             ),
-            ui.Section("Display"),
-            ui.Switch("Overlay", settings.overlay, "overlay"),
-            ui.Switch("Setup info", self.setup, "setup"),
-            ui.Switch("Frame rate", settings.frame_rate, "frame rate"),
-            ui.Switch("Cache scenes", settings.cache, "cache"),
+            ui.Section("Options"),
+            ui.Toggles(
+                (
+                    ("Overlay", "overlay", settings.overlay),
+                    ("Markers", "markers", self.renderer.markers_visible),
+                    ("Setup", "setup", self.setup),
+                )
+            ),
+            ui.Toggles(
+                (
+                    ("Keys", "keys", self.help),
+                    ("Frame rate", "frame rate", settings.frame_rate),
+                    ("Cache", "cache", settings.cache),
+                )
+            ),
             ui.Note("Tab hides this panel"),
         ]
         return rows
@@ -408,10 +520,14 @@ class Viewer:
             "next file": playing(lambda playback: playback.next_file()),
             "fewer": lambda: self._step_worlds(-1),
             "more": lambda: self._step_worlds(1),
-            "previous world": lambda: self._highlight(-1),
-            "next world": lambda: self._highlight(1),
+            "previous world": lambda: self._highlight(self.scene.highlight - 1),
+            "next world": lambda: self._highlight(self.scene.highlight + 1),
             "ghosts": self._toggle_ghosts,
+            "fainter": lambda: self._step_ghosts(-1),
+            "stronger": lambda: self._step_ghosts(1),
             "markers": self._toggle_markers,
+            "reset view": self.renderer.frame_all,
+            "top view": self.renderer.look_from_above,
             "follow": lambda: self.renderer.set_follow(not self.renderer.follow),
             "centre": self.renderer.centre_on_highlight,
             "quality": lambda: self._change(self.settings.with_mode("quality")),
@@ -427,6 +543,7 @@ class Viewer:
             "cache": setting("cache"),
             "panel": setting("panel"),
             "setup": self._toggle_setup,
+            "keys": self._toggle_help,
             "quit": lambda: glfw.set_window_should_close(self.window, True),
         }
 
@@ -449,10 +566,15 @@ class Viewer:
         if settings.graphics != previous.graphics:
             self.renderer.set_graphics(settings.graphics)
             self._draw_seconds.clear()
+        if settings.ghosts != previous.ghosts:
+            self.scene.set_ghosts(settings.ghosts)
         if settings.worlds != previous.worlds and self.playback is not None:
             self._recompose()
         if settings.frame_rate != previous.frame_rate:
             self._draw_seconds.clear()
+        if settings.cache != previous.cache:
+            done = "from now on" if settings.cache else "no longer"
+            self._say(f"Composed scenes are {done} kept in {user_folder('cache')}")
 
     def _step_resolution(self, direction: int) -> None:
         index = RESOLUTIONS.index(self.settings.graphics.resolution) + direction
@@ -471,10 +593,22 @@ class Viewer:
         if chosen:
             self._change(replace(self.settings, worlds=chosen[0]))
 
+    def _step_ghosts(self, direction: int) -> None:
+        index = GHOST_STRENGTHS.index(self.settings.ghosts) + direction
+        if 0 <= index < len(GHOST_STRENGTHS):
+            self._set_ghosts(GHOST_STRENGTHS[index])
+
+    def _toggle_ghosts(self) -> None:
+        hidden = self.settings.ghosts == "hidden"
+        self._set_ghosts(self._shown_ghosts if hidden else "hidden")
+
+    def _set_ghosts(self, strength: str) -> None:
+        if strength != "hidden":
+            self._shown_ghosts = strength
+        self._change(replace(self.settings, ghosts=strength))
+
     def _recompose(self) -> None:
         """Choose and compose the worlds again after the count changed."""
-        previous = self.scene
-        world_id = previous.recording.world_ids[previous.worlds[previous.highlight]]
         count = self.settings.worlds
         self.worlds = [
             choose_worlds(recording, count, self.ids) for recording in self.recordings
@@ -482,12 +616,12 @@ class Viewer:
         index = self.playback.file_index
         self._say_now(f"Composing {len(self.worlds[index])} worlds ...")
         scene = ComposedScene(self.recordings[index], self.worlds[index], self._cache())
-        self._use(scene, reframe=False, world_id=world_id)
+        self._use(scene, reframe=False)
         self._message = ""
         self.playback.sync(time.monotonic())  # composing may have taken a while
 
     def _show_file(self) -> None:
-        """Show the playlist's current file, keeping the highlighted world.
+        """Show the playlist's current file, with the world the user highlighted.
 
         A file whose model fails is left out of the playlist, and playback
         goes back, paused, to the frame shown before.
@@ -495,10 +629,9 @@ class Viewer:
         index = self.playback.file_index
         recording, worlds = self.recordings[index], self.worlds[index]
         previous = self.scene
-        world_id = previous.recording.world_ids[previous.worlds[previous.highlight]]
         if previous.fits(recording, worlds):
             previous.show(recording, worlds)
-            self._use(previous, reframe=False, world_id=world_id)
+            self._use(previous, reframe=False)
         else:
             self._say_now(f"Composing {len(worlds)} worlds ...")
             try:
@@ -513,25 +646,28 @@ class Viewer:
                 self.playback.playing = False
                 self._say(f"{error} (left out of the playlist)")
                 return
-            self._use(scene, reframe=True, world_id=world_id)
+            self._use(scene, reframe=True)
             self._message = ""
         self.playback.sync(time.monotonic())  # composing may have taken a while
 
-    def _use(
-        self, scene: ComposedScene, reframe: bool, world_id: int | None = None
-    ) -> None:
-        """Show ``scene``, carrying over the ghosts and the highlighted world."""
-        scene.set_ghosts_visible(self.scene.ghosts_visible)
+    def _use(self, scene: ComposedScene, reframe: bool) -> None:
+        """Show ``scene`` with the ghosts as set and the world the user picked.
+
+        Unless the user picked a world that ``scene`` draws, the best is
+        highlighted.
+        """
+        scene.set_ghosts(self.settings.ghosts)
         self.scene = scene
         self.renderer.show(scene)
         if reframe:
             self.renderer.frame_all()
         drawn = scene.recording.world_ids[scene.worlds]
-        same = np.flatnonzero(drawn == world_id) if world_id is not None else []
+        same = np.flatnonzero(drawn == self._picked) if self._picked is not None else []
         scene.set_highlight(int(same[0]) if len(same) else 0)
         self._shown_file = self.playback.file_index
         title = f"MujocoReplay - {scene.recording.title}"
-        glfw.set_window_title(self.window, title)
+        # A file name's undecodable bytes become lone surrogates, which GLFW refuses.
+        glfw.set_window_title(self.window, title.encode(errors="replace").decode())
         self._draw_seconds.clear()  # another scene costs another time
         self._dirty = True
 
@@ -540,12 +676,12 @@ class Viewer:
         playback = self.playback
         return playback.file_index, playback.frame_index, playback.playing
 
-    def _highlight(self, direction: int) -> None:
+    def _highlight(self, copy: int) -> None:
+        """Highlight a drawn world, and keep it highlighted in the next files."""
         if self.playback is not None:
-            self.scene.set_highlight(self.scene.highlight + direction)
-
-    def _toggle_ghosts(self) -> None:
-        self.scene.set_ghosts_visible(not self.scene.ghosts_visible)
+            self.scene.set_highlight(copy)
+            scene = self.scene
+            self._picked = int(scene.recording.world_ids[scene.worlds[scene.highlight]])
 
     def _toggle_markers(self) -> None:
         self.renderer.markers_visible = not self.renderer.markers_visible
@@ -553,11 +689,8 @@ class Viewer:
     def _toggle_setup(self) -> None:
         self.setup = not self.setup
 
-    def _rank(self) -> int:
-        """The highlighted world's rank among all the file's worlds, from 0."""
-        recording, world = self.scene.recording, self.scene.worlds[self.scene.highlight]
-        order = np.argsort(-recording.score, kind="stable")
-        return int(np.flatnonzero(order == world)[0])
+    def _toggle_help(self) -> None:
+        self.help = not self.help
 
     def _cache(self):
         return user_folder("cache") if self.settings.cache else None
@@ -567,7 +700,11 @@ class Viewer:
             self._picker = FilePicker()
 
     def _take_files(self) -> None:
-        """Open what the picker chose or what was dropped, once there is any."""
+        """Open what the picker chose or what was dropped, once there is any.
+
+        Several files play in the order of their names, which is what a run's
+        numbered files need, whatever order the system hands them over in.
+        """
         if self._picker is not None:
             try:
                 paths = self._picker.poll()
@@ -577,10 +714,10 @@ class Viewer:
                 return
             if paths is not None:
                 self._picker = None
-                self.open_files(paths)
+                self.open_files(in_name_order(paths))
         if self._dropped:
             paths, self._dropped = self._dropped, []
-            self.open_files(paths)
+            self.open_files(in_name_order(paths))
 
     def _say(self, message: str) -> None:
         self._message = message
@@ -599,7 +736,8 @@ class Viewer:
         if not self._draw_seconds:
             return "measuring ..."
         seconds = sum(self._draw_seconds) / len(self._draw_seconds)
-        return f"draw {1e3 * seconds:.1f} ms | up to {1 / seconds:.0f} frames/s"
+        rate = f"{1 / seconds:.0f}" if seconds <= 0.1 else f"{1 / seconds:.1f}"
+        return f"draw {1e3 * seconds:.1f} ms | up to {rate} frames/s"
 
     def _wait(self) -> float:
         """How long the loop may sleep before something has to be looked at."""
@@ -625,40 +763,87 @@ class Viewer:
         scale_y = frame_height / height if height else 1.0
         return x * scale_x, frame_height - y * scale_y
 
-    def _panel_width(self) -> int:
-        return ui.Panel.width(self.renderer.context.charHeight)
+    def _over_panel(self, x: float) -> bool:
+        return self.settings.panel and x < self._left
+
+    def _on_timeline(self, x: float, y: float) -> bool:
+        """Whether a point is on the timeline, or just above it."""
+        line = self.renderer.context.charHeight
+        timeline = self.renderer.timeline_height
+        loaded = self.playback is not None and self.settings.overlay
+        return loaded and timeline > 0 and x >= self._inset and y < timeline + line // 2
+
+    def _seek(self, x: float) -> None:
+        width = glfw.get_framebuffer_size(self.window)[0]
+        area = width - self._inset
+        self.playback.seek(self.renderer.frame_at(x, self._inset, area))
+        self._dirty = True
+
+    def _pick(self, x: float, y: float) -> None:
+        """Highlight the world under a point of the scene, if any."""
+        width, height = glfw.get_framebuffer_size(self.window)
+        copy = self.renderer.copy_at(x, y, width, height, self._left)
+        if copy is not None:
+            self._highlight(copy)
+            self._dirty = True
 
     def _on_key(self, window, key: int, scancode: int, action: int, mods: int) -> None:
         stepping = key in (glfw.KEY_RIGHT, glfw.KEY_LEFT)
         if action == glfw.RELEASE or (action == glfw.REPEAT and not stepping):
             return
         name = KEYS.get(key)
-        if name == "next world" and mods & glfw.MOD_SHIFT:
-            name = "previous world"
+        if name is not None:
+            self._act(name)
+
+    def _on_char(self, window, codepoint: int) -> None:
+        character = chr(codepoint)
+        name = CHARACTERS.get(character) or CHARACTERS.get(character.lower())
         if name is not None:
             self._act(name)
 
     def _on_button(self, window, button: int, action: int, mods: int) -> None:
-        # The cursor as of this event, kept by the cursor callback: asking GLFW
-        # now would give where it is after events still queued, so a click made
-        # while a frame was drawing would land where a later one did.
-        self._dragging = False
-        if action != glfw.PRESS:
-            return
+        """A panel button acts on release over it; the scene and timeline on press.
+
+        The position is the cursor as of this event, kept by the cursor
+        callback: asking GLFW now would give where it is after events still
+        queued, so a click made while a frame was drawing would land where a
+        later one did.
+        """
         x, y = self._pixels(*self._cursor)
+        if action == glfw.RELEASE:
+            pressed, self._pressed = self._pressed, None
+            self._dragging = self._scrubbing = False
+            if pressed is not None and ui.action_at(self.boxes, x, y) == pressed:
+                self._act(pressed)
+            return
         name = ui.action_at(self.boxes, x, y)
         if name is not None:
-            self._act(name)
+            self._pressed = name
             return
-        self._dragging = not (self.settings.panel and x < self._panel_width())
+        if self._over_panel(x):
+            return
+        left = button == glfw.MOUSE_BUTTON_LEFT
+        if left and self._on_timeline(x, y):
+            self._scrubbing = True
+            self._seek(x)
+            return
+        now, (then, last_x, last_y) = time.monotonic(), self._last_press
+        self._last_press = (now, x, y)
+        if left and now - then < DOUBLE_CLICK and abs(x - last_x) + abs(y - last_y) < 8:
+            self._pick(x, y)
+            return
+        self._dragging = True
 
     def _on_cursor(self, window, x: float, y: float) -> None:
         """Left drag rotates, right drag pans, middle drag zooms; Shift varies."""
         dx, dy = x - self._cursor[0], y - self._cursor[1]
         self._cursor = (x, y)
-        hovered = ui.action_at(self.boxes, *self._pixels(x, y))
+        pixels = self._pixels(x, y)
+        hovered = ui.action_at(self.boxes, *pixels)
         if hovered != self._hovered:
             self._hovered, self._dirty = hovered, True
+        if self._scrubbing:
+            self._seek(pixels[0])
         if not self._dragging:
             return
 
@@ -674,6 +859,7 @@ class Viewer:
             action = mouse.mjMOUSE_MOVE_H if shift else mouse.mjMOUSE_MOVE_V
         elif pressed(glfw.MOUSE_BUTTON_LEFT):
             action = mouse.mjMOUSE_ROTATE_H if shift else mouse.mjMOUSE_ROTATE_V
+            dy = 0.0 if shift else dy  # Shift turns around the vertical only
         elif pressed(glfw.MOUSE_BUTTON_MIDDLE):
             action = mouse.mjMOUSE_ZOOM
         else:
@@ -685,12 +871,11 @@ class Viewer:
 
     def _on_scroll(self, window, x: float, y: float) -> None:
         """The wheel scrolls the panel under the cursor, and zooms elsewhere."""
-        over_panel = self._pixels(*self._cursor)[0] < self._panel_width()
-        if self.settings.panel and over_panel:
+        if self._over_panel(self._pixels(*self._cursor)[0]):
             self.panel.scroll_by(round(-2 * self.renderer.context.charHeight * y))
             self.boxes = self._layout()
-        else:
-            self.renderer.move_camera(mujoco.mjtMouse.mjMOUSE_ZOOM, 0.0, -0.05 * y)
+        else:  # forward, away from the user, zooms in
+            self.renderer.move_camera(mujoco.mjtMouse.mjMOUSE_ZOOM, 0.0, 0.05 * y)
         self._dirty = True
 
     def _on_drop(self, window, paths: list[str]) -> None:
@@ -698,6 +883,19 @@ class Viewer:
 
     def _on_change(self, window, *ignored) -> None:
         self._dirty = True
+
+
+def _placement(
+    size: tuple[int, int] | None,
+) -> tuple[tuple[int, int], tuple[int, int] | None]:
+    """The window's size, and its position when it is free to choose one."""
+    monitor = glfw.get_primary_monitor()
+    if size is None and monitor:
+        left, top, width, height = glfw.get_monitor_workarea(monitor)
+        if width > 0 and height > 0:
+            size = (int(width * SCREEN_SHARE), int(height * SCREEN_SHARE))
+            return size, (left + (width - size[0]) // 2, top + (height - size[1]) // 2)
+    return size or (1280, 720), None
 
 
 def _empty_world() -> Recording:

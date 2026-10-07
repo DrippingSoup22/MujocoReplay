@@ -1,7 +1,9 @@
 """Tests for choosing worlds by rank, and for the producer half's light imports."""
 
+import os
 import subprocess
 import sys
+from pathlib import Path
 
 import numpy as np
 
@@ -63,8 +65,14 @@ def test_the_producer_half_imports_neither_mujoco_nor_graphics():
         "import sys, mujoco_replay, mujoco_replay.recording, mujoco_replay.selection;"
         "print(sorted(m for m in sys.modules if m in ('mujoco', 'glfw', 'OpenGL')))"
     )
+    source = Path(__file__).resolve().parents[1] / "src"  # this copy, not another
+    environment = {**os.environ, "PYTHONPATH": str(source)}
     output = subprocess.run(
-        [sys.executable, "-c", script], capture_output=True, text=True, check=True
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=environment,
     ).stdout.strip()
 
     assert output == "[]"

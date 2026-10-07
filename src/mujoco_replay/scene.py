@@ -10,7 +10,9 @@ body is; nothing is simulated. The highlighted world keeps the model's colours
 and the others are grey ghosts. docs/design.md explains each step.
 """
 
+import contextlib
 import hashlib
+import math
 import os
 from pathlib import Path
 
@@ -21,12 +23,17 @@ from mujoco_replay.recording import Recording, RecordingError
 
 # Raised whenever the composition changes what it compiles, so that composites
 # cached by an older version are not used; and how many composites are kept.
-CACHE_VERSION = 1
+CACHE_VERSION = 2
 CACHE_ENTRIES = 16
 
-# The ghosts' colour. A ghost shape's alpha is this alpha times the shape's own,
-# so that a shape the model hides stays hidden.
-GHOST_RGBA = np.array([0.55, 0.55, 0.55, 0.15], dtype=np.float32)
+# The ghosts' grey, and their alpha at each strength when up to FADE_FROM
+# worlds are drawn; with more, it falls with the square root of their number,
+# so that the ghosts in front of the highlighted world leave it readable. A
+# ghost shape's alpha is the ghosts' alpha times the shape's own, so that a
+# shape the model hides stays hidden.
+GHOST_RGB = (0.55, 0.55, 0.55)
+GHOST_ALPHAS = {"hidden": 0.0, "faint": 0.07, "normal": 0.15, "strong": 0.35}
+FADE_FROM = 8
 # Parts of a model that drawing does not need. They name bodies, joints, and
 # sites that the composition removes or renames, so they are deleted before
 # compiling.
@@ -56,7 +63,8 @@ class ComposedScene:
     ``choose_worlds`` returns them; copy ``k`` of the replicated bodies shows
     world ``worlds[k]``. ``highlight`` is the copy drawn in colour. ``model``
     and ``data`` are ordinary MuJoCo objects for the renderer to draw;
-    ``ghost_geoms`` marks the shapes currently drawn as ghosts.
+    ``ghost_geoms`` marks the shapes currently drawn as ghosts, and
+    ``ghost_rgba`` is the ghosts' colour, which their markers share.
     """
 
     def __init__(
@@ -71,11 +79,11 @@ class ComposedScene:
         self.recording = recording
         self.worlds = np.asarray(worlds, dtype=np.int64)
         self.highlight = 0
-        self.ghosts_visible = True
+        self.ghosts = "normal"  # a strength of GHOST_ALPHAS
         self.frame_index = 0
 
         spec = self._parse()
-        original = self._compile(spec, "model_xml")
+        original = self._compile(self._parse(), "model_xml")
         if original.nq != recording.position_count:
             raise self._error(
                 f"qpos has {recording.position_count} positions per world, "
@@ -100,15 +108,14 @@ class ComposedScene:
             np.array([self.model.body(prefix + name).id for name in roots] or [0])
             for prefix in prefixes
         ]
-        body_copy = np.full(self.model.nbody, -1)
+        self._body_copy = np.full(self.model.nbody, -1)
         for copy in range(len(self.worlds)):
             for name in bodies:
-                body_copy[self.model.body(f"w{copy}_{name}").id] = copy
-        self._geom_copy = body_copy[self.model.geom_bodyid]
+                self._body_copy[self.model.body(f"w{copy}_{name}").id] = copy
+        self._geom_copy = self._body_copy[self.model.geom_bodyid]
         self._natural_rgba = self.model.geom_rgba.copy()
         self._natural_matid = self.model.geom_matid.copy()
-        self._ghost_rgba = np.tile(GHOST_RGBA, (self.model.ngeom, 1))
-        self._ghost_rgba[:, 3] *= self._drawn_alpha()
+        self._shape_alpha = self._drawn_alpha()
         self.ghost_geoms = np.zeros(self.model.ngeom, dtype=bool)
         self._apply_colours()
         self.set_frame(0)
@@ -154,10 +161,25 @@ class ComposedScene:
         self._apply_colours()
         self.set_frame(self.frame_index)  # the static joints follow the highlight
 
-    def set_ghosts_visible(self, visible: bool) -> None:
-        """Show or hide every copy but the highlighted one."""
-        self.ghosts_visible = visible
+    def set_ghosts(self, strength: str) -> None:
+        """Draw every copy but the highlighted one at a strength of GHOST_ALPHAS."""
+        self.ghosts = strength
         self._apply_colours()
+
+    @property
+    def ghosts_visible(self) -> bool:
+        return self.ghosts != "hidden"
+
+    @property
+    def ghost_rgba(self) -> np.ndarray:
+        """The ghosts' colour at their strength, faded for many worlds."""
+        fade = min(1.0, math.sqrt(FADE_FROM / len(self.worlds)))
+        return np.array([*GHOST_RGB, GHOST_ALPHAS[self.ghosts] * fade], np.float32)
+
+    def copy_of_body(self, body: int) -> int | None:
+        """The copy a body of the composite belongs to; none for the static scene."""
+        copy = int(self._body_copy[body]) if body >= 0 else -1
+        return copy if copy >= 0 else None
 
     def marker_positions(self) -> np.ndarray | None:
         """Each drawn world's markers at the current frame, ``(copies, M, 3)``."""
@@ -195,13 +217,19 @@ class ComposedScene:
         return self._compile(spec, "the composed scene")
 
     def _parse(self) -> mujoco.MjSpec:
-        """A fresh spec of the recorded model, with every body and joint named."""
+        """A fresh spec of the recorded model, with every body and joint named.
+
+        Compiling would otherwise merge bodies without joints into their
+        parents (``fusestatic``), inside the spec, so that bodies named by
+        the recorded model would be missing from the copies.
+        """
         try:
             spec = mujoco.MjSpec.from_string(
                 self.recording.model_xml, assets=self.recording.assets or None
             )
         except ValueError as error:
             raise self._error(f"model_xml cannot be parsed: {error}") from None
+        spec.compiler.fusestatic = False
         _name_unnamed(spec)
         return spec
 
@@ -279,9 +307,9 @@ class ComposedScene:
         self.ghost_geoms = (self._geom_copy >= 0) & ~own
         self.model.geom_rgba[own] = self._natural_rgba[own]
         self.model.geom_matid[own] = self._natural_matid[own]
-        ghost_rgba = self._ghost_rgba[self.ghost_geoms]
-        if not self.ghosts_visible:
-            ghost_rgba[:, 3] = 0  # MuJoCo leaves shapes with alpha 0 out entirely
+        # MuJoCo leaves shapes with alpha 0, such as hidden ghosts, out entirely.
+        ghost_rgba = np.tile(self.ghost_rgba, (int(self.ghost_geoms.sum()), 1))
+        ghost_rgba[:, 3] *= self._shape_alpha[self.ghost_geoms]
         self.model.geom_rgba[self.ghost_geoms] = ghost_rgba
         self.model.geom_matid[self.ghost_geoms] = -1  # no material or texture
 
@@ -316,25 +344,38 @@ def _subtree_names(spec: mujoco.MjSpec, roots: list[str]) -> tuple[list[str], se
 
 
 def _cache_key(recording: Recording, roots: list[str], copies: int) -> str:
-    """A name for one composite: the same model and copies give the same name."""
-    digest = hashlib.sha256()
-    parts = (CACHE_VERSION, mujoco.__version__, recording.model_xml, roots, copies)
-    for part in parts:
-        digest.update(repr(part).encode())
+    """A name for one composite: the same model and copies give the same name.
+
+    Each part is hashed with its length, so that two different sets of parts
+    can never run together into the same bytes.
+    """
+    parts = [str(CACHE_VERSION), mujoco.__version__, recording.model_xml]
+    parts += [repr(roots), str(copies)]
     for name in sorted(recording.assets):
-        digest.update(name.encode() + recording.assets[name])
+        parts += [name, recording.assets[name]]
+    digest = hashlib.sha256()
+    for part in parts:
+        data = part if isinstance(part, bytes) else part.encode()
+        digest.update(len(data).to_bytes(8, "little") + data)
     return digest.hexdigest()[:32]
 
 
 def _load_composite(path: Path | None) -> mujoco.MjModel | None:
-    """A cached composite, or nothing when there is none or it cannot be read."""
+    """A cached composite, or nothing when there is none or it cannot be read.
+
+    Python reads the file and MuJoCo the bytes: MuJoCo's own file access may
+    not open a path with characters outside the system's code page.
+    """
     if path is None or not path.exists():
         return None
     try:
-        model = mujoco.MjModel.from_binary_path(str(path))
-        path.touch()  # recently used: kept when the cache is trimmed
+        model = mujoco.MjModel.from_binary_path(
+            path.name, {path.name: path.read_bytes()}
+        )
     except (OSError, ValueError):
         return None
+    with contextlib.suppress(OSError):
+        path.touch()  # recently used: kept when the cache is trimmed
     return model
 
 
@@ -342,16 +383,19 @@ def _save_composite(model: mujoco.MjModel, path: Path | None) -> None:
     """Store a composite and trim the cache; a failure costs only the cache."""
     if path is None:
         return
+    partial = path.with_suffix(".partial")
     try:
+        content = np.empty(mujoco.mj_sizeModel(model), dtype=np.uint8)
+        mujoco.mj_saveModel(model, None, content)
         path.parent.mkdir(parents=True, exist_ok=True)
-        partial = path.with_suffix(".partial")
-        mujoco.mj_saveModel(model, str(partial), None)
+        partial.write_bytes(content.tobytes())
         os.replace(partial, path)  # never a half-written file under the real name
         stored = sorted(path.parent.glob("*.mjb"), key=os.path.getmtime)
         for old in stored[:-CACHE_ENTRIES]:
             old.unlink()
     except (OSError, ValueError):
-        pass
+        with contextlib.suppress(OSError):
+            partial.unlink(missing_ok=True)
 
 
 def _keep_targets(

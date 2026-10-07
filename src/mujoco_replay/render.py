@@ -15,7 +15,8 @@ import unicodedata
 import mujoco
 import numpy as np
 
-from mujoco_replay.scene import GHOST_RGBA, ComposedScene
+from mujoco_replay.recording import Recording
+from mujoco_replay.scene import ComposedScene
 from mujoco_replay.settings import QUALITY, Graphics
 from mujoco_replay.ui import text_width
 
@@ -28,15 +29,26 @@ COARSE_SHAPES = (12, 6)
 # A marker's beacon, in shares of the scene's extent: its height, the radius
 # of its pole, and the radius of its head.
 BEACON = (0.5, 0.006, 0.04)
-# The reflection given to a floor that has none, for the reflections switch.
-FLOOR_REFLECTANCE = 0.15
+# The reflection given to a floor that has none, for the reflections switch:
+# enough to see, too little to show mirrored legs as extra ghosts.
+FLOOR_REFLECTANCE = 0.08
+# The area MuJoCo's shadows cover, in model extents (``vis.map.shadowclip``):
+# its default of 1 leaves worlds away from the first without shadows, and
+# speckles small models with shadows that fall on the shapes casting them.
+SHADOW_CLIP = 4.0
 # Room in the scene for the shapes MuJoCo adds itself, such as light glyphs.
 SPARE_SHAPES = 200
+# The camera stays this many degrees above the horizon, so above the floor.
+LOWEST_ELEVATION = -2.0
+# How far from the middle of the worlds, in model extents, framing still looks
+# for a world; one whose simulation diverged lies beyond, or is not finite.
+FRAMED_EXTENTS = 1000
 TRACK_RGBA = (0.12, 0.12, 0.12, 0.75)
 FILLED_RGBA = (0.85, 0.85, 0.85, 0.9)
 EVENT_RGB = (1.0, 0.72, 0.2)
 EPISODE_RGB = (0.25, 0.6, 1.0)
 TEXT_RGB = (0.92, 0.93, 0.95)
+SHADE_RGBA = (0.07, 0.08, 0.10, 0.75)
 # MuJoCo's fonts hold ASCII only; these characters have close equivalents.
 ASCII_EQUIVALENTS = str.maketrans(
     {"·": "|", "×": "x", "–": "-", "—": "-", "…": "...", "’": "'", "“": '"', "”": '"'}
@@ -80,6 +92,7 @@ class SceneRenderer:
         self.option.sitegroup[:] = 0
         self.markers_visible = True
         self.follow = False
+        self.timeline_height = 0  # of the timeline last drawn, for clicks on it
         self.graphics = graphics
         self.scene: ComposedScene | None = None
         self._offscreen_size = offscreen_size
@@ -121,22 +134,24 @@ class SceneRenderer:
         status: str = "",
         flash: str = "",
         hud: bool = True,
-        setup: bool = False,
+        side: list[str] | None = None,
         corner: str = "",
+        left: int = 0,
         inset: int = 0,
         message: str = "",
         hint: str = "",
     ) -> None:
         """Draw the scene as posed now, with the overlay unless ``hud`` is off.
 
-        ``corner`` is a line for the bottom right, such as the frame rate. The
-        overlay keeps ``inset`` pixels clear on the left, for the panel.
-        ``message`` is shown at the top and ``hint`` large in the middle, even
-        without the overlay.
+        The scene fills the window right of ``left`` pixels, and the overlay
+        keeps ``inset`` pixels clear, for the panel. ``side`` holds lines for
+        the top right, such as the setup; ``corner`` is a line for the bottom
+        right, such as the frame rate; ``message`` is shown at the top and
+        ``hint`` large in the middle. These four show without the overlay too.
         """
         scene, shapes, context = self.scene, self._shapes, self._context
         if self.follow:
-            self.camera.lookat[:] = scene.world_centre(scene.highlight)
+            self._look_at(scene.world_centre(scene.highlight))
         mujoco.mjv_updateScene(
             scene.model,
             scene.data,
@@ -148,14 +163,18 @@ class SceneRenderer:
         )
         shapes.flags[mujoco.mjtRndFlag.mjRND_SHADOW] = self.graphics.shadows
         shapes.flags[mujoco.mjtRndFlag.mjRND_REFLECTION] = self.graphics.reflections
-        self._quiet_ghosts()
+        if self.graphics.shadows:
+            self._keep_shadows_clean()
         if self.markers_visible:
             self._add_markers()
-        viewport = mujoco.MjrRect(0, 0, width, height)
+        viewport = mujoco.MjrRect(left, 0, max(1, width - left), height)
         if self._offscreen_size is None:  # draw a share offscreen, scale it up
             share = self.graphics.resolution / 100
             drawn = mujoco.MjrRect(
-                0, 0, max(1, round(width * share)), max(1, round(height * share))
+                0,
+                0,
+                max(1, round(viewport.width * share)),
+                max(1, round(height * share)),
             )
             self._fit_buffer(width, height)
             mujoco.mjr_setBuffer(mujoco.mjtFramebuffer.mjFB_OFFSCREEN, context)
@@ -165,8 +184,20 @@ class SceneRenderer:
         else:
             mujoco.mjr_render(viewport, shapes, context)
         area = mujoco.MjrRect(inset, 0, max(1, width - inset), height)
-        above = self._overlay(area, status, flash, setup) if hud else 0
-        if corner:  # above the timeline, if any
+        line = context.charHeight
+        above, top_left = self._overlay(area, status, flash) if hud else (0, 0)
+        self.timeline_height = above
+        if hud and status:
+            above += 2 * line  # the playback line's own row
+        if side:  # right of the top-left lines, above the playback line
+            free = mujoco.MjrRect(
+                area.left + top_left,
+                above,
+                max(1, area.width - top_left),
+                max(1, area.height - above),
+            )
+            self._side(free, side)
+        if corner:  # above the playback line and the timeline, if any
             raised = mujoco.MjrRect(area.left, above, area.width, area.height - above)
             mujoco.mjr_overlay(
                 mujoco.mjtFont.mjFONT_NORMAL,
@@ -229,24 +260,66 @@ class SceneRenderer:
         return np.flipud(rgb)
 
     def frame_all(self) -> None:
-        """Look at every drawn world and its markers from a raised angle."""
+        """Look at every drawn world and its markers from a raised angle.
+
+        A world whose positions diverged, to infinity or far beyond the
+        others, is left out, so that it cannot take the camera with it.
+        """
         scene = self.scene
+        extent = scene.model.stat.extent
         points = [scene.world_centre(copy) for copy in range(len(scene.worlds))]
         markers = scene.marker_positions()
         if markers is not None:
             points.extend(markers.reshape(-1, 3))
-        low, high = np.min(points, axis=0), np.max(points, axis=0)
+        points = np.array(points)
+        points = points[np.isfinite(points).all(axis=1)]
+        if len(points):
+            middle = np.median(points, axis=0)
+            near = np.linalg.norm(points - middle, axis=1) <= FRAMED_EXTENTS * extent
+            points = points[near]
         self.follow = False
-        self.camera.lookat[:] = (low + high) / 2
-        spread = np.linalg.norm(high - low)
-        self.camera.distance = 0.8 * spread + 1.2 * scene.model.stat.extent
         self.camera.elevation = -25.0
         self.camera.azimuth = 120.0
+        if not len(points):
+            return
+        low, high = points.min(axis=0), points.max(axis=0)
+        self.camera.lookat[:] = (low + high) / 2
+        self.camera.distance = 0.8 * np.linalg.norm(high - low) + 1.2 * extent
+
+    def copy_at(
+        self, x: float, y: float, width: int, height: int, left: int
+    ) -> int | None:
+        """The drawn world under a point of the last drawing, if any, as its copy.
+
+        ``x`` and ``y`` are pixels from the bottom left of a window ``width`` by
+        ``height`` whose scene starts ``left`` pixels in, as ``render`` drew it.
+        """
+        scene, across = self.scene, max(1, width - left)
+        point = np.zeros(3)
+        geom, flex, skin = (np.zeros(1, dtype=np.int32) for _ in range(3))
+        body = mujoco.mjv_select(
+            scene.model,
+            scene.data,
+            self.option,
+            across / max(1, height),
+            (x - left) / across,
+            y / max(1, height),
+            self._shapes,
+            point,
+            geom,
+            flex,
+            skin,
+        )
+        return scene.copy_of_body(body)
+
+    def look_from_above(self) -> None:
+        """Look straight down, keeping the look-at point and the distance."""
+        self.camera.elevation = -90.0
 
     def centre_on_highlight(self) -> None:
         """Look at the highlighted world, keeping the distance and angle."""
         self.follow = False
-        self.camera.lookat[:] = self.scene.world_centre(self.scene.highlight)
+        self._look_at(self.scene.world_centre(self.scene.highlight))
 
     def set_follow(self, follow: bool) -> None:
         """Keep looking at the highlighted world's centre of mass, or stop there.
@@ -258,29 +331,41 @@ class SceneRenderer:
         self.follow = follow
 
     def move_camera(self, action: int, dx: float, dy: float) -> None:
-        """Rotate, pan, or zoom by a mouse motion, as fractions of the height."""
+        """Rotate, pan, or zoom by a mouse motion, as fractions of the height.
+
+        Panning stops following, which would undo it; the camera stays above
+        the floor.
+        """
+        if action in (mujoco.mjtMouse.mjMOUSE_MOVE_V, mujoco.mjtMouse.mjMOUSE_MOVE_H):
+            self.follow = False
         mujoco.mjv_moveCamera(self.scene.model, action, dx, dy, self.camera)
+        self.camera.elevation = min(self.camera.elevation, LOWEST_ELEVATION)
+
+    def _look_at(self, point: np.ndarray) -> None:
+        """Move the look-at point there, unless the point is not finite."""
+        if np.isfinite(point).all():
+            self.camera.lookat[:] = point
 
     def close(self) -> None:
         if self._context is not None:
             self._context.free()
             self._context = None
 
-    def _quiet_ghosts(self) -> None:
-        """Mark the ghosts' shapes as decoration, which casts no shadow.
+    def _keep_shadows_clean(self) -> None:
+        """Mark the ghosts' and the floors' shapes as decoration, which casts
+        no shadow.
 
         MuJoCo draws translucent shapes with full shadows, which would cover
-        the floor in grey; it casts none from decoration.
+        the floor in grey; and a plane can only shade itself, which speckles
+        it. Both still receive shadows.
         """
         ghosts = self.scene.ghost_geoms
-        if not ghosts.any():
-            return
-        geom = int(mujoco.mjtObj.mjOBJ_GEOM)
+        geom, plane = int(mujoco.mjtObj.mjOBJ_GEOM), int(mujoco.mjtGeom.mjGEOM_PLANE)
         decoration = int(mujoco.mjtCatBit.mjCAT_DECOR)
         shapes = self._shapes
         for index in range(shapes.ngeom):
             shape = shapes.geoms[index]
-            if shape.objtype == geom and ghosts[shape.objid]:
+            if shape.objtype == geom and (shape.type == plane or ghosts[shape.objid]):
                 shape.category = decoration
 
     def _add_markers(self) -> None:
@@ -301,7 +386,7 @@ class SceneRenderer:
             highlighted = copy == scene.highlight
             if not (highlighted or scene.ghosts_visible):
                 continue
-            rgba = MARKER_RGBA if highlighted else GHOST_RGBA
+            rgba = MARKER_RGBA if highlighted else scene.ghost_rgba
             for position, radius, name in zip(
                 markers.astype(np.float64), radii, recording.marker_names, strict=True
             ):
@@ -331,22 +416,27 @@ class SceneRenderer:
         area: mujoco.MjrRect,
         status: str,
         flash: str,
-        setup: bool,
-    ) -> int:
+    ) -> tuple[int, int]:
         """The text corners and the timeline; the middle stays clear.
 
-        Returns the height the timeline takes at the bottom.
+        Returns the height the timeline takes at the bottom and the width the
+        top-left lines take. Lines too long for the area are cut.
         """
         context = self._context
+        line = context.charHeight
         normal, big = mujoco.mjtFont.mjFONT_NORMAL, mujoco.mjtFont.mjFONT_BIG
         grid = mujoco.mjtGridPos
         above = self._timeline(area)
         raised = mujoco.MjrRect(area.left, above, area.width, area.height - above)
-        info = "\n".join(info_lines(self.scene))
-        mujoco.mjr_overlay(normal, grid.mjGRID_TOPLEFT, area, _ascii(info), "", context)
+        fit = area.width - 2 * line
+        info = [_cut(context, _ascii(text), fit) for text in info_lines(self.scene)]
+        mujoco.mjr_overlay(
+            normal, grid.mjGRID_TOPLEFT, area, "\n".join(info), "", context
+        )
         if status:
+            status = _cut(context, _ascii(status), fit)
             mujoco.mjr_overlay(
-                normal, grid.mjGRID_BOTTOMLEFT, raised, _ascii(status), "", context
+                normal, grid.mjGRID_BOTTOMLEFT, raised, status, "", context
             )
         if flash:  # above the playback line, which can reach the middle
             lift = above + 2 * context.charHeight
@@ -354,28 +444,69 @@ class SceneRenderer:
             mujoco.mjr_overlay(
                 big, grid.mjGRID_BOTTOM, clear, _ascii(flash), "", context
             )
-        if setup:
-            rows = max(1, area.height // context.charHeight - 2)
-            lines = setup_lines(self.scene.recording.setup) or ["(no setup)"]
-            if len(lines) > rows:
-                lines = lines[: rows - 1] + [f"... {len(lines) - rows + 1} more"]
-            mujoco.mjr_overlay(
-                normal,
-                grid.mjGRID_TOPRIGHT,
-                area,
-                _ascii("\n".join(lines)),
-                "",
-                context,
+        return above, max(text_width(context, text) for text in info) + 2 * line
+
+    def _side(self, area: mujoco.MjrRect, lines: list[str]) -> None:
+        """Lines at the area's top right, in the columns that fit.
+
+        MuJoCo's overlay holds 500 characters at most, so each line is drawn
+        on its own. The columns the lines need share the area's width, down to
+        ten characters' height each, and a line too long for its column is
+        cut; lines beyond the columns that fit are counted on the last one.
+        """
+        context = self._context
+        line = context.charHeight
+        step = line + line // 4
+        rows = max(1, (area.height - line // 2) // step)
+        needed = -(-len(lines) // rows)  # columns, rounded up
+        widest = min(max(area.width // needed, 10 * line), area.width) - line
+        texts = [_cut(context, _ascii(text), widest) for text in lines]
+        columns = [texts[start : start + rows] for start in range(0, len(texts), rows)]
+        kept: list[tuple[list[str], int]] = []
+        for column in columns:
+            width = max(text_width(context, text) for text in column) + line
+            if sum(width for _, width in kept) + width > area.width:
+                break
+            kept.append((column, width))
+        if not kept:
+            return
+        shown = sum(len(column) for column, _ in kept)
+        if shown < len(texts):
+            kept[-1][0][-1] = f"... {len(texts) - shown + 1} more"
+        x = area.left + area.width - sum(width for _, width in kept)
+        top = area.bottom + area.height
+        for column, width in kept:
+            height = len(column) * step + line // 2
+            mujoco.mjr_rectangle(
+                mujoco.MjrRect(x, top - height, width, height), *SHADE_RGBA
             )
-        return above
+            for index, text in enumerate(column):
+                rect = mujoco.MjrRect(
+                    x + line // 2,
+                    top - line // 4 - (index + 1) * step,
+                    text_width(context, text) + 4,
+                    step,
+                )
+                _write(context, rect, text)
+            x += width
+
+    def frame_at(self, x: float, area_left: int, area_width: int) -> int:
+        """The frame under ``x`` on the timeline along an area's bottom."""
+        frames = self.scene.recording.frame_count
+        share = (x - area_left) / max(1, area_width)
+        return int(np.clip(share * frames, 0, frames - 1))
 
     def _timeline(self, area: mujoco.MjrRect) -> int:
-        """Draw the timeline along the area's bottom; return the height it takes."""
+        """Draw the timeline along the area's bottom; return the height it takes.
+
+        An event label that would cover the one before it is left out; its
+        tick stays.
+        """
         scene, context = self.scene, self._context
         recording = scene.recording
         frames = recording.frame_count
         left, width = area.left, area.width
-        bar = max(4, area.height // 100)
+        bar = max(6, context.charHeight // 2)
 
         def x_at(frame: int) -> int:  # frames run from 0 to ``frames`` inclusive
             return left + min(width - 2, round(frame / frames * width))
@@ -390,25 +521,20 @@ class SceneRenderer:
         if recording.event_frames is None:
             return bar
         row = context.charHeight + 4
-        for frame, label in zip(
-            recording.event_frames, recording.event_labels, strict=True
+        free = left  # where the next label may start
+        for frame, label in sorted(
+            zip(recording.event_frames, recording.event_labels, strict=True)
         ):
             x = x_at(frame)
             mujoco.mjr_rectangle(mujoco.MjrRect(x, 0, 2, bar + 3), *EVENT_RGB, 1.0)
             label = _ascii(label)
             size = text_width(context, label) + 8
             start = int(np.clip(x - size // 2, left, max(left, left + width - size)))
-            mujoco.mjr_label(
-                mujoco.MjrRect(start, bar + 3, size, row),
-                mujoco.mjtFont.mjFONT_NORMAL,
-                label,
-                0.1,
-                0.1,
-                0.1,
-                0.7,
-                *EVENT_RGB,
-                context,
-            )
+            if start < free:
+                continue
+            rect = mujoco.MjrRect(start, bar + 3, size, row)
+            _write(context, rect, label, shade=(0.1, 0.1, 0.1, 0.7), rgb=EVENT_RGB)
+            free = start + size + 4
         return bar + 3 + row
 
     def _hint(self, area: mujoco.MjrRect, hint: str) -> None:
@@ -422,17 +548,7 @@ class SceneRenderer:
             width,
             height,
         )
-        mujoco.mjr_label(
-            rect,
-            mujoco.mjtFont.mjFONT_BIG,
-            hint,
-            0.07,
-            0.08,
-            0.1,
-            0.8,
-            *TEXT_RGB,
-            context,
-        )
+        _write(context, rect, hint, mujoco.mjtFont.mjFONT_BIG, (0.07, 0.08, 0.1, 0.8))
 
 
 def info_lines(scene: ComposedScene) -> list[str]:
@@ -448,14 +564,17 @@ def info_lines(scene: ComposedScene) -> list[str]:
                 for name, value in zip(recording.frame_info_names, values, strict=True)
             )
         )
-    rank = int(np.flatnonzero(np.argsort(-recording.score, kind="stable") == world)[0])
+    rank, ranked = world_rank(recording, world)
     highlighted = [
         f"world {recording.world_ids[world]}",
-        f"rank {rank + 1} of {recording.world_count:,}",
+        f"rank {rank:,} of {ranked:,}",
         f"{recording.score_name} {recording.score[world]:+.3g}",
     ]
     if recording.level is not None:
-        highlighted.append(f"level {recording.level[world]} of {recording.level.max()}")
+        level = f"level {recording.level[world]}"
+        if recording.level_count is not None:
+            level += f" of {recording.level_count}"
+        highlighted.append(level)
     lines.append(" | ".join(highlighted))
     ghosts = len(scene.worlds) - 1
     hidden = " (hidden)" if ghosts and not scene.ghosts_visible else ""
@@ -466,16 +585,54 @@ def info_lines(scene: ComposedScene) -> list[str]:
     return lines
 
 
-def setup_lines(setup: dict, prefix: str = "") -> list[str]:
-    """A setup object flattened to ``key = value`` lines, nested keys dotted."""
-    lines = []
+def world_rank(recording: Recording, world: int) -> tuple[int, int]:
+    """A world's rank, 1 for the best, and among how many worlds.
+
+    The producer's ranks among all its worlds when the file gives them, else
+    the rank by score among the file's own worlds.
+    """
+    if recording.rank is not None:
+        return int(recording.rank[world]), recording.ranked_worlds
+    order = np.argsort(-recording.score, kind="stable")
+    return int(np.flatnonzero(order == world)[0]) + 1, recording.world_count
+
+
+def setup_lines(setup: dict, path: str = "") -> list[str]:
+    """A setup object as ``key = value`` lines.
+
+    The values of a nested object follow a heading of its dotted path,
+    indented, so that long paths are not repeated on every line.
+    """
+    values = {key: value for key, value in setup.items() if not isinstance(value, dict)}
+    lines = [path] if path and values else []
+    for key, value in values.items():
+        shown = value if isinstance(value, str) else json.dumps(value)
+        lines.append(f"{'  ' if path else ''}{key} = {shown}")
     for key, value in setup.items():
         if isinstance(value, dict):
-            lines += setup_lines(value, f"{prefix}{key}.")
-        else:
-            shown = value if isinstance(value, str) else json.dumps(value)
-            lines.append(f"{prefix}{key} = {shown}")
+            lines += setup_lines(value, f"{path}.{key}" if path else key)
     return lines
+
+
+def _write(
+    context: mujoco.MjrContext,
+    rect: mujoco.MjrRect,
+    text: str,
+    font: int = mujoco.mjtFont.mjFONT_NORMAL,
+    shade: tuple[float, ...] = (0, 0, 0, 0),
+    rgb: tuple[float, ...] = TEXT_RGB,
+) -> None:
+    """Text in the middle of a rectangle, on a shade (by default none)."""
+    mujoco.mjr_label(rect, font, text, *shade, *rgb, context)
+
+
+def _cut(context: mujoco.MjrContext, text: str, width: int) -> str:
+    """The text, shortened with "..." when it is wider than ``width`` pixels."""
+    if text_width(context, text) <= width:
+        return text
+    while text and text_width(context, text + "...") > width:
+        text = text[:-1]
+    return text + "..."
 
 
 def _number(value: float) -> str:
@@ -495,12 +652,14 @@ def _ascii(text: str) -> str:
 def _add_shadows_and_reflections(model: mujoco.MjModel) -> None:
     """Give a scene a shadow and a floor reflection for the switches to show.
 
-    When no light casts shadows, the first one does; a floor (a plane with a
-    material) that does not reflect reflects slightly. Whether either is
-    drawn is still the graphics' choice, through MuJoCo's render flags.
+    When no light casts shadows, the first one does, over an area wide enough
+    for the worlds; a floor (a plane with a material) that does not reflect
+    reflects slightly. Whether either is drawn is still the graphics' choice,
+    through MuJoCo's render flags.
     """
     if model.nlight and not model.light_castshadow.any():
         model.light_castshadow[0] = 1
+    model.vis.map.shadowclip = max(model.vis.map.shadowclip, SHADOW_CLIP)
     for geom in np.flatnonzero(model.geom_type == mujoco.mjtGeom.mjGEOM_PLANE):
         material = model.geom_matid[geom]
         if material >= 0 and model.mat_reflectance[material] == 0:

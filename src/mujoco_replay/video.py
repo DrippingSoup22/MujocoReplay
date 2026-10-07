@@ -23,6 +23,7 @@ from mujoco_replay.playback import Playback
 from mujoco_replay.recording import Recording
 from mujoco_replay.render import SceneRenderer, offscreen_context
 from mujoco_replay.scene import ComposedScene
+from mujoco_replay.settings import QUALITY, Graphics
 
 FLASH_SECONDS = 1.0
 
@@ -37,6 +38,7 @@ def export(
     hud: bool = True,
     progress: Callable[[int, int], None] | None = None,
     cache: Path | None = None,
+    graphics: Graphics = QUALITY,
 ) -> int:
     """Write the playlist to ``path`` as an MP4; return the video frames written.
 
@@ -44,7 +46,8 @@ def export(
     first. The size is rounded down to even numbers, as the encoder needs.
     When the last file ends with an event, the last frame is held while the
     event flashes. ``progress``, when given, is called with the frames done
-    and the total. ``cache`` is the composed-scene cache folder, if any.
+    and the total. ``cache`` is the composed-scene cache folder, if any;
+    ``graphics`` says how finely to draw.
     """
     width, height = size[0] // 2 * 2, size[1] // 2 * 2
     recorded = sum(recording.frame_count for recording in recordings)
@@ -59,7 +62,7 @@ def export(
         context = offscreen_context(width, height)
         cleanup.callback(context.free)
         scene = ComposedScene(recordings[0], worlds[0], cache)
-        renderer = SceneRenderer(scene, (width, height), _font_scale(height))
+        renderer = SceneRenderer(scene, (width, height), _font_scale(height), graphics)
         cleanup.callback(renderer.close)
         writer = cleanup.enter_context(
             imageio.get_writer(
