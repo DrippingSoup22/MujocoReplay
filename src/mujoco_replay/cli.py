@@ -13,6 +13,7 @@ import numpy as np
 
 from mujoco_replay.recording import Recording, RecordingError, read_recording
 from mujoco_replay.selection import DEFAULT_WORLDS, MAX_WORLDS, choose_worlds
+from mujoco_replay.settings import load_settings, save_settings
 
 
 def main(arguments: list[str] | None = None) -> int:
@@ -34,8 +35,17 @@ def main(arguments: list[str] | None = None) -> int:
         if options.command == "view":
             from mujoco_replay import viewer
 
+            settings = load_settings()
+            if options.mode:
+                settings = settings.with_mode(options.mode)
+                save_settings(settings)
             viewer.run(
-                recordings, worlds, options.speed, hud=not options.no_hud, size=size
+                recordings,
+                worlds,
+                options.speed,
+                hud=not options.no_hud,
+                size=size,
+                graphics=settings.graphics,
             )
             return 0
         try:
@@ -108,6 +118,11 @@ def build_parser() -> argparse.ArgumentParser:
         subcommand.add_argument("--no-hud", action="store_true")
         subcommand.add_argument("--width", type=_between(16), help="in pixels")
         subcommand.add_argument("--height", type=_between(16), help="in pixels")
+    view.add_argument(
+        "--mode",
+        choices=("quality", "performance"),
+        help="the graphics preset, remembered for the next runs",
+    )
     render.add_argument("--out", required=True, help="the MP4 file to write")
     render.add_argument("--fps", type=_positive(int), default=30)
     return parser

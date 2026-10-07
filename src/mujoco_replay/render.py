@@ -16,9 +16,16 @@ import mujoco
 import numpy as np
 
 from mujoco_replay.scene import GHOST_RGBA, ComposedScene
+from mujoco_replay.settings import QUALITY, Graphics
 
 # The highlighted world's markers; the ghosts' are ghost grey.
 MARKER_RGBA = np.array([0.95, 0.15, 0.65, 0.9], dtype=np.float32)
+# Facets around and along MuJoCo's round shapes: its defaults, and a coarse set
+# that draws about a quarter of the triangles.
+FINE_SHAPES = (28, 16)
+COARSE_SHAPES = (12, 6)
+# The reflection given to a floor that has none, for the reflections switch.
+FLOOR_REFLECTANCE = 0.15
 # Room in the scene for the shapes MuJoCo adds itself, such as light glyphs.
 SPARE_SHAPES = 200
 TRACK_RGBA = (0.12, 0.12, 0.12, 0.75)
@@ -47,8 +54,11 @@ class SceneRenderer:
     """Draws a composed scene into the current OpenGL context.
 
     Make an OpenGL context current first: the viewer's window, or
-    ``offscreen_context``. With ``offscreen_size``, drawing goes to MuJoCo's
-    offscreen buffer of that size, which ``read_pixels`` reads back.
+    ``offscreen_context``. With ``offscreen_size``, everything is drawn into
+    MuJoCo's offscreen buffer of that size, which ``read_pixels`` reads back.
+    Without it, the scene is drawn offscreen at the graphics' share of the
+    window and scaled up into the window, and the overlay is drawn on top at
+    the window's full resolution.
     """
 
     def __init__(
@@ -56,6 +66,7 @@ class SceneRenderer:
         scene: ComposedScene,
         offscreen_size: tuple[int, int] | None = None,
         font_scale: int = 150,
+        graphics: Graphics = QUALITY,
     ) -> None:
         self.camera = mujoco.MjvCamera()
         self.option = mujoco.MjvOption()
@@ -64,8 +75,11 @@ class SceneRenderer:
         self.option.sitegroup[:] = 0
         self.markers_visible = True
         self.follow = False
+        self.graphics = graphics
         self.scene: ComposedScene | None = None
         self._offscreen_size = offscreen_size
+        global_ = scene.model.vis.global_
+        self._buffer = offscreen_size or (global_.offwidth, global_.offheight)
         self._font_scale = font_scale
         self._context: mujoco.MjrContext | None = None
         self._shapes: mujoco.MjvScene | None = None
@@ -76,28 +90,23 @@ class SceneRenderer:
         """Draw ``scene`` from now on; a new model gets new OpenGL resources."""
         new_model = self.scene is None or scene.model is not self.scene.model
         if new_model:
-            if self._context is not None:
-                self._context.free()
-            if self._offscreen_size is not None:
-                width, height = self._offscreen_size
-                scene.model.vis.global_.offwidth = width
-                scene.model.vis.global_.offheight = height
-            try:
-                self._context = mujoco.MjrContext(scene.model, self._font_scale)
-            except mujoco.FatalError as error:
-                raise RuntimeError(
-                    f"OpenGL is not available ({error}). On Linux without a "
-                    "display, set MUJOCO_GL=egl or MUJOCO_GL=osmesa."
-                ) from None
-            if self._offscreen_size is not None:
-                mujoco.mjr_setBuffer(
-                    mujoco.mjtFramebuffer.mjFB_OFFSCREEN, self._context
-                )
+            _add_shadows_and_reflections(scene.model)
+            self._make_context(scene.model)
         markers = len(scene.recording.marker_names or ())
         needed = scene.model.ngeom + len(scene.worlds) * markers + SPARE_SHAPES
         if new_model or self._shapes.maxgeom < needed:
             self._shapes = mujoco.MjvScene(scene.model, maxgeom=needed)
         self.scene = scene
+
+    def set_graphics(self, graphics: Graphics) -> None:
+        """Draw from now on as ``graphics`` says; some changes remake the context."""
+        remake = (graphics.antialiasing, graphics.fine_shapes) != (
+            self.graphics.antialiasing,
+            self.graphics.fine_shapes,
+        )
+        self.graphics = graphics
+        if remake:
+            self._make_context(self.scene.model)
 
     def render(
         self,
@@ -107,9 +116,13 @@ class SceneRenderer:
         flash: str = "",
         hud: bool = True,
         setup: bool = False,
+        corner: str = "",
     ) -> None:
-        """Draw the scene as posed now, with the overlay unless ``hud`` is off."""
-        scene = self.scene
+        """Draw the scene as posed now, with the overlay unless ``hud`` is off.
+
+        ``corner`` is a line for the bottom right, such as the frame rate.
+        """
+        scene, shapes, context = self.scene, self._shapes, self._context
         if self.follow:
             self.camera.lookat[:] = scene.world_centre(scene.highlight)
         mujoco.mjv_updateScene(
@@ -119,15 +132,55 @@ class SceneRenderer:
             None,
             self.camera,
             mujoco.mjtCatBit.mjCAT_ALL,
-            self._shapes,
+            shapes,
         )
+        shapes.flags[mujoco.mjtRndFlag.mjRND_SHADOW] = self.graphics.shadows
+        shapes.flags[mujoco.mjtRndFlag.mjRND_REFLECTION] = self.graphics.reflections
         self._quiet_ghosts()
         if self.markers_visible:
             self._add_markers()
         viewport = mujoco.MjrRect(0, 0, width, height)
-        mujoco.mjr_render(viewport, self._shapes, self._context)
+        if self._offscreen_size is None:  # draw a share offscreen, scale it up
+            share = self.graphics.resolution / 100
+            drawn = mujoco.MjrRect(
+                0, 0, max(1, round(width * share)), max(1, round(height * share))
+            )
+            self._fit_buffer(width, height)
+            mujoco.mjr_setBuffer(mujoco.mjtFramebuffer.mjFB_OFFSCREEN, context)
+            mujoco.mjr_render(drawn, shapes, context)
+            mujoco.mjr_blitBuffer(drawn, viewport, 1, 0, context)
+            mujoco.mjr_setBuffer(mujoco.mjtFramebuffer.mjFB_WINDOW, context)
+        else:
+            mujoco.mjr_render(viewport, shapes, context)
         if hud:
-            self._overlay(viewport, status, flash, setup)
+            self._overlay(viewport, status, flash, setup, corner)
+
+    def _make_context(self, model: mujoco.MjModel) -> None:
+        """Make the OpenGL resources for ``model``, as fine as the graphics ask."""
+        if self._context is not None:
+            self._context.free()
+        quality = model.vis.quality
+        quality.offsamples = 4 if self.graphics.antialiasing else 0
+        detail = FINE_SHAPES if self.graphics.fine_shapes else COARSE_SHAPES
+        quality.numslices, quality.numstacks = detail
+        model.vis.global_.offwidth, model.vis.global_.offheight = self._buffer
+        try:
+            self._context = mujoco.MjrContext(model, self._font_scale)
+        except mujoco.FatalError as error:
+            raise RuntimeError(
+                f"OpenGL is not available ({error}). On Linux without a "
+                "display, set MUJOCO_GL=egl or MUJOCO_GL=osmesa."
+            ) from None
+        mujoco.mjr_setBuffer(mujoco.mjtFramebuffer.mjFB_OFFSCREEN, self._context)
+
+    def _fit_buffer(self, width: int, height: int) -> None:
+        """Grow the offscreen buffer to the window, which may have grown."""
+        if width <= self._buffer[0] and height <= self._buffer[1]:
+            return
+        self._buffer = (max(width, self._buffer[0]), max(height, self._buffer[1]))
+        global_ = self.scene.model.vis.global_
+        global_.offwidth, global_.offheight = self._buffer
+        mujoco.mjr_resizeOffscreen(*self._buffer, self._context)
 
     def read_pixels(self, width: int, height: int) -> np.ndarray:
         """The last drawing as an RGB image, ``(height, width, 3)``, top row first."""
@@ -222,7 +275,12 @@ class SceneRenderer:
                 shapes.ngeom += 1
 
     def _overlay(
-        self, viewport: mujoco.MjrRect, status: str, flash: str, setup: bool
+        self,
+        viewport: mujoco.MjrRect,
+        status: str,
+        flash: str,
+        setup: bool,
+        corner: str,
     ) -> None:
         """The text corners and the timeline; the middle stays clear."""
         context = self._context
@@ -237,6 +295,10 @@ class SceneRenderer:
         if status:
             mujoco.mjr_overlay(
                 normal, grid.mjGRID_BOTTOMLEFT, raised, _ascii(status), "", context
+            )
+        if corner:
+            mujoco.mjr_overlay(
+                normal, grid.mjGRID_BOTTOMRIGHT, raised, _ascii(corner), "", context
             )
         if flash:  # above the playback line, which can reach the middle
             lift = above + 2 * context.charHeight
@@ -355,3 +417,18 @@ def _ascii(text: str) -> str:
         char if char.isascii() else "" if unicodedata.combining(char) else "?"
         for char in decomposed
     )
+
+
+def _add_shadows_and_reflections(model: mujoco.MjModel) -> None:
+    """Give a scene a shadow and a floor reflection for the switches to show.
+
+    When no light casts shadows, the first one does; a floor (a plane with a
+    material) that does not reflect reflects slightly. Whether either is
+    drawn is still the graphics' choice, through MuJoCo's render flags.
+    """
+    if model.nlight and not model.light_castshadow.any():
+        model.light_castshadow[0] = 1
+    for geom in np.flatnonzero(model.geom_type == mujoco.mjtGeom.mjGEOM_PLANE):
+        material = model.geom_matid[geom]
+        if material >= 0 and model.mat_reflectance[material] == 0:
+            model.mat_reflectance[material] = FLOOR_REFLECTANCE

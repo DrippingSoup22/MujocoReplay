@@ -16,6 +16,7 @@ from mujoco_replay.playback import Playback
 from mujoco_replay.recording import Recording
 from mujoco_replay.render import SceneRenderer
 from mujoco_replay.scene import ComposedScene
+from mujoco_replay.settings import PERFORMANCE, Graphics
 
 FLASH_SECONDS = 1.0
 
@@ -26,6 +27,7 @@ def run(
     seconds_per_frame: float,
     hud: bool = True,
     size: tuple[int, int] = (1280, 720),
+    graphics: Graphics = PERFORMANCE,
 ) -> None:
     """Open the window and play the recordings until it is closed.
 
@@ -35,13 +37,13 @@ def run(
     if not glfw.init():
         raise RuntimeError("GLFW cannot start: the window needs a display")
     try:
-        glfw.window_hint(glfw.SAMPLES, 4)
+        glfw.window_hint(glfw.SAMPLES, 0)  # anti-aliasing is offscreen
         window = glfw.create_window(*size, "MujocoReplay", None, None)
         if not window:
             raise RuntimeError("GLFW cannot open a window with OpenGL")
         glfw.make_context_current(window)
         glfw.swap_interval(1)
-        Viewer(window, recordings, worlds, seconds_per_frame, hud).loop()
+        Viewer(window, recordings, worlds, seconds_per_frame, hud, graphics).loop()
     finally:
         glfw.terminate()
 
@@ -56,6 +58,7 @@ class Viewer:
         worlds: list[np.ndarray],
         seconds_per_frame: float,
         hud: bool,
+        graphics: Graphics,
     ) -> None:
         self.window = window
         self.recordings = recordings
@@ -64,7 +67,9 @@ class Viewer:
         self.setup = False
         self.playback = Playback(recordings, seconds_per_frame, time.monotonic())
         self.scene = ComposedScene(recordings[0], worlds[0])
-        self.renderer = SceneRenderer(self.scene, font_scale=_font_scale(window))
+        self.renderer = SceneRenderer(
+            self.scene, font_scale=_font_scale(window), graphics=graphics
+        )
         self._shown_file = 0
         self._passed: list[str] = []  # events passed, not yet flashed
         self._flash = ""
