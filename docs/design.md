@@ -20,6 +20,10 @@ file described in [recording-format.md](recording-format.md).
   can be hidden.
 - A free camera, driven with the mouse as in MuJoCo's own viewer.
 - A video of the same scene, from the same code, for presentations.
+- An application, not only a command: it opens on an empty world, takes
+  files from a file picker or dropped onto it, and offers a small panel of
+  its own settings, never MuJoCo's raw options, with a Quality and a
+  Performance mode so that it plays on a weak graphics card (stage R6).
 
 Not goals: physics, editing, side-by-side scenes, or a graphical user
 interface beyond keys and the mouse. Drawing is bounded by legibility and the
@@ -35,8 +39,10 @@ blob anyway.
 | `selection.py` | `selected_ranks` and `level_of_ranks`, shared with producers; `world_counts` and `choose_worlds(recording, count, world_ids=None)`: which of a file's worlds to draw, and in what rank order | NumPy |
 | `scene.py` | `ComposedScene`: the composite model, the joint mapping, colours, markers, `set_frame(frame_index)`, and `fits`/`show` to reuse the composite for another file of the same model | MuJoCo, NumPy |
 | `playback.py` | `Playback`: the playlist, current frame, play/pause, speed presets, stepping, the events just passed, and the playback line of the overlay; pure logic, no graphics | none |
-| `render.py` | `SceneRenderer`: the MuJoCo render context, camera, drawing of the scene, markers, overlay, timeline, and reading pixels back; works in a window or offscreen | MuJoCo, NumPy |
-| `viewer.py` | The window: GLFW setup, mouse and key handling, the main loop | GLFW, MuJoCo, NumPy; imported only by the `view` command |
+| `render.py` | `SceneRenderer`: the MuJoCo render context, camera, graphics settings, drawing of the scene, markers, overlay, timeline, and reading pixels back; works in a window or offscreen | MuJoCo, NumPy |
+| `settings.py` | `Settings` and `Graphics`: the Quality and Performance presets, and keeping the settings in the user's settings folder | the standard library |
+| `ui.py` | `Panel`: the side panel's rows, their layout, drawing, and clicks | MuJoCo |
+| `viewer.py` | The application: the window, the empty world, opening files, the panel's actions, the keys and the mouse, the main loop that draws only on change | GLFW, MuJoCo, NumPy; imported only by the `view` command |
 | `video.py` | Offscreen rendering of a playlist to an MP4 | `imageio`, `imageio-ffmpeg`, MuJoCo, NumPy; imported only by the `render` command, so a missing `video` extra fails before any work |
 | `cli.py`, `__main__.py` | The `mujoco-replay` command and `python -m mujoco_replay` | argparse, NumPy; the window and video modules inside the commands |
 
@@ -132,8 +138,14 @@ the ghosts. The alpha value is a starting point to tune by eye; it may need to
 drop as more worlds are drawn.
 
 Markers: after `mjv_updateScene`, one sphere per drawn world and marker is
-added with `mjv_initGeom` into the scene's spare slots: the highlighted
-world's in a saturated magenta, the ghosts' in the ghost grey. They are
+added with `mjv_initGeom` into the scene's spare slots, at the marker's
+radius: the highlighted world's in a saturated magenta, the ghosts' in the
+ghost grey. Over each of the highlighted world's markers stands a beacon
+sized to the scene: a pole half the composite's `stat.extent` high and a
+head that carries the marker's name, drawn as the shape's label. Centipede's
+target is a point 10 to 20 mm ahead of a 34 mm centipede, with an arrival
+radius of 1 mm, too small to find by its sphere alone; the beacon shows it
+from any distance, and the sphere still shows the arrival zone. Markers are
 decoration, so they cast no shadow; they hide with the ghosts, and on their
 own with `M`.
 
@@ -193,10 +205,12 @@ file draws it, and returns to rank 0 otherwise.
 | B, Shift+B | Highlight the next or previous drawn world, by rank |
 | G | Show or hide the ghosts |
 | M | Show or hide the markers |
-| H | Show or hide the overlay |
-| I | Show or hide the setup panel |
+| H | Show or hide the overlay (remembered) |
+| I | Show or hide the setup information |
 | C | Centre the camera on the highlighted world |
 | F | Follow the highlighted world on or off |
+| O | Open recordings with the system's file picker |
+| Tab | Show or hide the side panel (remembered) |
 | Esc, Q | Quit |
 
 Right and Left repeat while held. Mouse, as in MuJoCo's `simulate`: left drag
@@ -208,7 +222,10 @@ with the standard action mapping (in MuJoCo 3.12 it takes no scene argument).
 
 Drawn with `mujoco.mjr_overlay` in the corners, and with
 `mujoco.mjr_rectangle` and `mujoco.mjr_label` for the timeline, in the normal
-font, so that the middle of the window stays clear. MuJoCo's fonts hold ASCII
+font, so that the middle of the window stays clear. In the window the corners
+and the timeline keep to the right of the side panel. A message (a file that
+could not be opened, or "Composing 32 worlds ...") is shown at the top, and the
+empty world shows its hint large in the middle. MuJoCo's fonts hold ASCII
 only, so the separators are ` | ` and `x`, and other characters in a
 recording's text are replaced: `·` by `|`, accents dropped, the rest by `?`.
 
@@ -253,7 +270,8 @@ and in the video alike.
 and `MjvOption`, and needs a current OpenGL context before it is made. The
 viewer creates a visible GLFW window and renders to its framebuffer at the
 framebuffer size, not the window size, so high-DPI screens render at full
-resolution, with a font scale taken from the window's content scale.
+resolution, with a font scale taken from the window's content scale (100 at
+normal density, 200 at double).
 Offscreen drawing, for the video and the tests, uses `mujoco.GLContext`,
 MuJoCo's own helper, rather than a hand-made hidden GLFW window: by default it
 is exactly that hidden window, and on a Linux machine without a display it
@@ -275,6 +293,95 @@ drawn at all: they mark points for sensors and attachments, and every ghost
 would carry opaque copies of them. For 32 copies of the chain (1,633 shapes),
 listing the shapes takes 0.05 ms, marking the ghosts 1 ms in Python, and
 posing the frame 0.2 ms.
+
+## Graphics settings
+
+Stage R6 measured where drawing time goes, with 32 copies of Centipede's
+model in Mesa's software renderer (on a graphics card the numbers are smaller
+and their ratios differ, but the order is telling): shadows and reflections
+together doubled the time, 4× anti-aliasing added 60 %, and MuJoCo's fine
+tessellation of round shapes, 28 facets around and 16 along, cost 3.5 times
+the coarse 12 by 6. MuJoCo draws every shape with its own draw call and has no
+instancing, so the time also grows with the number of worlds drawn, and
+overlapping translucent ghosts cost every pixel they cover.
+
+`Graphics` holds five switches, which two presets set at once:
+
+| Switch | Quality | Performance | How it is done |
+| --- | --- | --- | --- |
+| Shadows | on | off | MuJoCo's `mjRND_SHADOW` flag; a scene whose lights cast no shadow gets one from its first light (Centipede's light casts none) |
+| Reflections | on | off | `mjRND_REFLECTION`; a floor (a plane with a material) that does not reflect reflects 0.15 |
+| Anti-aliasing | on | off | 4 samples in MuJoCo's offscreen buffer (`vis.quality.offsamples`) |
+| Fine shapes | on | off | `vis.quality.numslices` and `numstacks`: 28 and 16, or 12 and 6 |
+| Resolution | 100 % | 75 % | the share of the window's width and height drawn, then scaled up |
+
+Changing a switch after a preset makes the mode "custom". The anti-aliasing
+and the shapes are part of the `MjrContext`, which is made again when they
+change; the others apply at the next frame. The ghosts never cast shadows
+(they are marked as decoration), so a shadow belongs to the highlighted world.
+
+In the window, the scene is always drawn into MuJoCo's offscreen buffer at
+the chosen share of the window's size and copied into the window with
+`mjr_blitBuffer`, which scales it up smoothly; the overlay and the panel are
+then drawn into the window at its full resolution, so text stays sharp. The
+window itself has no multisampling, since the offscreen buffer does it. The
+buffer grows with `mjr_resizeOffscreen` when the window does.
+
+The frame-rate readout, a switch of the panel, shows how long a frame takes
+to draw and the frame rate that allows (`draw 12.3 ms | up to 81 frames/s`):
+while it is on, each frame waits for the graphics card (`mjr_finish`) so that
+the time is the card's, not only the program's. The window draws only when
+something changed: a frame passed, the camera or a setting moved, a message
+came or went. Between such moments the main loop sleeps in
+`glfw.wait_events_timeout` until the next frame is due
+(`Playback.seconds_to_next_frame`), so a paused window, or one playing at
+3 s per frame, keeps the graphics card idle.
+
+## The application
+
+The window opens on an empty world: a checkered floor under a sky, in
+Centipede's colours, with the line "Open recordings (O), or drop .npz files
+here". Recordings come from the command line, from the panel's Open button,
+which shows the system's file picker, or from files dropped onto the window
+(GLFW's drop callback). The picker is tkinter's, run in a process of its own,
+which prints the chosen paths: that keeps tkinter's event loop apart from
+GLFW's, and the window keeps drawing while the picker is open; where tkinter
+is missing, a message says so and points to dropping. A file that cannot be
+read or composed is reported as a message at the top of the window, and the
+window goes on showing what it showed.
+
+The side panel, on the left, is drawn with MuJoCo's own overlay functions
+(`mjr_rectangle`, `mjr_label`), so the viewer needs nothing beyond MuJoCo and
+NumPy. Its sections are Playback (the transport buttons, the speed, the
+file), Worlds (how many are shown, the highlighted rank, ghosts, markers,
+following), Graphics (the two presets and the five switches), and Display
+(overlay, setup information, frame rate, the cache). The viewer describes the
+panel as plain rows each frame; `ui.Panel` lays them out, draws them, and
+names the action under a click, which the viewer then carries out, the same
+action a key would. Tab hides the panel and leaves a small Panel button; the
+wheel scrolls the panel when the cursor is over it. A click's position is the
+one the cursor callback recorded in event order: asking GLFW for the cursor
+at the click would give where it is after the events still queued, so on a
+slow card a quick second click would land the first one too; driving the
+window found that.
+
+The settings (the graphics, the number of worlds, the cache, the frame-rate
+readout, the panel, and the overlay) are saved as JSON in the user's settings
+folder (`%APPDATA%\MujocoReplay` on Windows, `~/.config/mujoco-replay` on
+Linux) whenever they change, and read at the next start; a missing or
+damaged file, or a wrong value, gives the default for that value. The first
+start is in Performance mode with 16 worlds.
+
+Composed scenes are cached in the user's cache folder (`%LOCALAPPDATA%` or
+`~/.cache`) as compiled models in MuJoCo's binary format (`mj_saveModel`,
+`MjModel.from_binary_path`), named by a hash of the model, its assets, the
+replicated bodies, the number of copies, the MuJoCo version, and a version of
+the composition itself. A run opened again, or a count changed back, then
+skips the compiler: with Centipede's model, 16 copies load in 6 ms instead of
+0.30 s, 32 in 13 ms instead of 0.76 s, and 128 in 55 ms instead of 7.6 s
+(plus about 15 ms to compile the single model, which the joint mapping still
+needs). The files take 5 to 27 MB; the newest 16 are kept, and a damaged one
+is composed again. The panel's switch turns the cache off.
 
 ## Video
 
@@ -302,14 +409,18 @@ files at 640 × 360 and 0.1 s per frame took 2 min 18 s to export.
 ## Command line
 
 ```text
-mujoco-replay [view] FILE [FILE ...] [--worlds 16 | --ids IDS]
+mujoco-replay [view] [FILE ...] [--worlds N | --ids IDS] [--mode quality|performance]
               [--speed SECONDS] [--no-hud] [--width W] [--height H]
 mujoco-replay render FILE [FILE ...] --out PATH [--fps 30] [--speed SECONDS]
-              [--width 1280] [--height 720] [--worlds 16 | --ids IDS] [--no-hud]
+              [--width 1280] [--height 720] [--worlds N | --ids IDS] [--no-hud]
 ```
 
-`view` is the default subcommand. `python -m mujoco_replay` is the same
-command. Both subcommands draw at 1280 × 720 unless told otherwise, read and
+`view` is the default subcommand, and the files are optional: without them
+the window opens on the empty world. `python -m mujoco_replay` is the same
+command. The saved settings supply what the command line leaves out; `--mode`
+and `--worlds` given to `view` are remembered, as the panel's changes are, and
+`--no-hud` hides the overlay for this run. `render` always draws with the
+Quality graphics. Both subcommands draw at 1280 × 720 unless told otherwise, read and
 check every file before opening anything (the checks that need a later file's
 model come when playback reaches it), and exit with status 1 and a one-line
 message for a bad file or a missing OpenGL; `render` names a missing `video`
@@ -340,3 +451,13 @@ real graphics card. The window itself was also started there and driven with
 synthetic key presses (the X test extension) and screenshots, which showed
 every key acting as listed; that is a check before the user's, not instead of
 it.
+
+In stage R6 the application was driven the same way, through the panel this
+time: started empty, started with a stand-in recording simulated from
+Centipede's own model, paused, fewer and more worlds, Quality with the
+frame-rate readout, the panel hidden and shown again, the highlight moved,
+the resolution lowered, and three quick clicks while a frame was drawing,
+which found the click-position fault described above. Dropping files cannot
+be faked that way, so a test calls the drop callback directly; the file
+picker could not be shown at all, since the container's Python has no
+tkinter.

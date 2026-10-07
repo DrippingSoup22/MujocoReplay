@@ -15,15 +15,17 @@ overlay shows the facts of the run. The same scene can be rendered to a video.
 
 ## Status
 
-**Stages R1 to R4 built, R5's documents done (2026-10-07):** the recording
-format, the rank rule, the scene composition, playback, the renderer, the
-window, and the video exist and are tested; Centipede writes recordings with
-the first two. `mujoco-replay FILE` opens the window and `mujoco-replay render
-FILE --out replay.mp4` writes a video. Both were verified in a container
-without a GPU, on offscreen frames, synthetic key presses, and a written
-video. What remains is the user's: the check of the window on a real display
-and of a video in a player, with Centipede's own recordings, and the links
-from Centipede's documents to this tool.
+**Stage R6 built (2026-10-07):** the tool is an application. It opens on an
+empty world, takes recordings from a file picker, from files dropped onto the
+window, or from the command line, and offers a side panel with its own
+settings: how many worlds to draw (1, 2, 4, … up to 128, the best of as many
+score bands), a Quality and a Performance mode with five switches, a
+frame-rate readout, and a cache of composed scenes. Settings are remembered
+between runs. `mujoco-replay render` writes a video. Everything was verified
+in a container without a GPU, on offscreen frames, with the window driven by
+synthetic clicks and keys, and with a stand-in recording made from
+Centipede's own model; it awaits the user's check on a real display, on a
+weak graphics card (a GeForce MX330), with Centipede's own recordings.
 
 ## Documentation
 
@@ -31,7 +33,7 @@ from Centipede's documents to this tool.
 | --- | --- |
 | [`plan.md`](plan.md) | The stages that build the tool, each with its checks |
 | [`docs/recording-format.md`](docs/recording-format.md) | The recording file: every key, its shape and meaning, and the writer and reader |
-| [`docs/design.md`](docs/design.md) | How the tool is built: modules, scene composition, world selection, playback, overlay, camera, video |
+| [`docs/design.md`](docs/design.md) | How the tool is built: modules, scene composition, world selection, playback, overlay, camera, graphics settings, the application and its panel, the cache, video |
 | [`AGENTS.md`](AGENTS.md) | Working rules for coding assistants |
 
 ## Project folders
@@ -39,7 +41,7 @@ from Centipede's documents to this tool.
 ```text
 MujocoReplay/
 ├─ docs/                Format and design documents
-├─ src/mujoco_replay/   The package: recording format, selection, scene, renderer, viewer, video
+├─ src/mujoco_replay/   The package: recording format, selection, scene, playback, renderer, settings, panel, viewer, video
 ├─ tests/               Automated tests, one file per module; shared helpers in conftest.py
 └─ archive/             Superseded material; local only
 ```
@@ -67,15 +69,19 @@ MuJoCo's own context helper; that path has not been tried yet.
 ## Use
 
 ```powershell
+mujoco-replay
 mujoco-replay RECORDING.npz [RECORDING2.npz ...]
-mujoco-replay RECORDING.npz --worlds 32 --speed 1
-mujoco-replay RECORDING.npz --ids 3,7,9
+mujoco-replay RECORDING.npz --mode performance --worlds 16
 mujoco-replay render RECORDING.npz --out replay.mp4
 ```
 
-Several files play one after the other. By default 16 worlds are drawn: the
-file's worlds are split by score rank into 16 bands and the best of each is
-drawn. `--worlds N` draws `N` (1, 2, 4, … up to 128) and `--ids` exactly those
-producer ids. Space plays and pauses, the arrows step and change
-speed, B moves the highlight, and the mouse moves the camera; every key and
-option is listed in [`docs/design.md`](docs/design.md#playback-and-keys).
+Without files the window opens empty: open recordings with the panel's Open
+button (or `O`), or drop `.npz` files onto it. Several files play one after
+the other. The panel on the left sets everything else: playback, how many
+worlds are drawn, the highlighted world, ghosts and markers, the graphics
+(Quality, Performance, or single switches), and the display; Tab hides it.
+On a weak graphics card, start in Performance mode with 16 worlds, turn on the
+frame-rate readout, and change one switch at a time: the readout says how
+long a frame takes to draw. Space plays and pauses, the arrows step and
+change speed, B moves the highlight, and the mouse moves the camera; every
+key, option, and switch is described in [`docs/design.md`](docs/design.md).

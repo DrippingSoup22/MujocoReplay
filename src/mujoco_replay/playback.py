@@ -6,6 +6,8 @@ each step. Advancing uses wall time, so a slow renderer skips frames at fast
 speeds instead of slowing down. docs/design.md lists the keys that drive it.
 """
 
+import math
+
 from mujoco_replay.recording import Recording
 
 DEFAULT_SECONDS_PER_FRAME = 0.3
@@ -61,6 +63,12 @@ class Playback:
     def sync(self, now: float) -> None:
         """Forget the wall time since the last call, after a slow pause."""
         self._clock = now
+
+    def seconds_to_next_frame(self, now: float) -> float:
+        """Wall time until playing moves on by a frame; infinite while paused."""
+        if not self.playing:
+            return math.inf
+        return max(0.0, self.seconds_per_frame - self._owed - (now - self._clock))
 
     def toggle(self) -> None:
         """Play or pause; playing again at the very end replays the file."""

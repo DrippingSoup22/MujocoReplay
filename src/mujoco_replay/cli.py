@@ -1,18 +1,21 @@
 """The ``mujoco-replay`` command: ``view`` (the default) and ``render``.
 
-Both read the recordings, choose the worlds to draw in each, and hand them on;
-the window and the video modules are imported only when they run, so that the
-command starts quickly and reports a bad file before opening anything.
+Both read the recordings given and check them before opening anything; ``view``
+also starts without any, on the empty world. The window and the video modules
+are imported only when they run, so that the command starts quickly. The
+saved settings supply what the command line leaves out; ``--mode`` and
+``--worlds`` given to ``view`` are remembered, as the panel's changes are.
 """
 
 import argparse
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 
 from mujoco_replay.recording import Recording, RecordingError, read_recording
-from mujoco_replay.selection import DEFAULT_WORLDS, MAX_WORLDS, choose_worlds
+from mujoco_replay.selection import MAX_WORLDS, choose_worlds
 from mujoco_replay.settings import load_settings, save_settings, user_folder
 
 
@@ -25,30 +28,27 @@ def main(arguments: list[str] | None = None) -> int:
     options = parser.parse_args(raw)
     if options.command == "render" and not Path(options.out).parent.is_dir():
         parser.error(f"--out: the folder {Path(options.out).parent} does not exist")
+    settings = load_settings()
+    if options.command == "view" and (options.mode or options.worlds):
+        if options.mode:
+            settings = settings.with_mode(options.mode)
+        if options.worlds:
+            settings = replace(settings, worlds=options.worlds)
+        save_settings(settings)  # remembered, as changes in the panel are
+    if options.no_hud:
+        settings = replace(settings, overlay=False)
+    count = options.worlds or settings.worlds
+    size = (options.width or 1280, options.height or 720)
     try:
         recordings = [read_recording(path) for path in options.files]
         worlds = [
-            drawn_worlds(recording, path, options, parser)
+            drawn_worlds(recording, path, count, options.ids, parser)
             for recording, path in zip(recordings, options.files, strict=True)
         ]
-        size = (options.width or 1280, options.height or 720)
-        settings = load_settings()
-        cache = user_folder("cache") if settings.cache else None
         if options.command == "view":
             from mujoco_replay import viewer
 
-            if options.mode:
-                settings = settings.with_mode(options.mode)
-                save_settings(settings)
-            viewer.run(
-                recordings,
-                worlds,
-                options.speed,
-                hud=not options.no_hud,
-                size=size,
-                graphics=settings.graphics,
-                cache=cache,
-            )
+            viewer.run(recordings, settings, options.speed, options.ids, size)
             return 0
         try:
             from mujoco_replay import video
@@ -66,9 +66,9 @@ def main(arguments: list[str] | None = None) -> int:
             options.speed,
             options.fps,
             size,
-            hud=not options.no_hud,
+            hud=settings.overlay,
             progress=_report_progress,
-            cache=cache,
+            cache=user_folder("cache") if settings.cache else None,
         )
         print(f"wrote {options.out}: {frames} frames, {frames / options.fps:.1f} s")
         return 0
@@ -80,14 +80,15 @@ def main(arguments: list[str] | None = None) -> int:
 def drawn_worlds(
     recording: Recording,
     path: str,
-    options: argparse.Namespace,
+    count: int,
+    ids: list[int] | None,
     parser: argparse.ArgumentParser,
 ) -> np.ndarray:
     """The indices of the worlds to draw from one file, best first."""
-    worlds = choose_worlds(recording, options.worlds, options.ids)
+    worlds = choose_worlds(recording, count, ids)
     if not len(worlds):
-        ids = ",".join(str(world_id) for world_id in options.ids)
-        parser.error(f"--ids {ids}: none of these worlds is in {path}")
+        listed = ",".join(str(world_id) for world_id in ids)
+        parser.error(f"--ids {listed}: none of these worlds is in {path}")
     return worlds
 
 
@@ -100,13 +101,13 @@ def build_parser() -> argparse.ArgumentParser:
     subcommands = parser.add_subparsers(dest="command", required=True)
     view = subcommands.add_parser("view", help="open the interactive window")
     render = subcommands.add_parser("render", help="write a video")
+    view.add_argument("files", nargs="*", help="recording files, in order")
+    render.add_argument("files", nargs="+", help="recording files, in order")
     for subcommand in (view, render):
-        subcommand.add_argument("files", nargs="+", help="recording files, in order")
         which = subcommand.add_mutually_exclusive_group()
         which.add_argument(
             "--worlds",
             type=_between(1, MAX_WORLDS),
-            default=DEFAULT_WORLDS,
             help="how many worlds to draw: the best of as many rank bands",
         )
         which.add_argument(

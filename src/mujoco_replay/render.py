@@ -17,6 +17,7 @@ import numpy as np
 
 from mujoco_replay.scene import GHOST_RGBA, ComposedScene
 from mujoco_replay.settings import QUALITY, Graphics
+from mujoco_replay.ui import text_width
 
 # The highlighted world's markers; the ghosts' are ghost grey.
 MARKER_RGBA = np.array([0.95, 0.15, 0.65, 0.9], dtype=np.float32)
@@ -24,6 +25,9 @@ MARKER_RGBA = np.array([0.95, 0.15, 0.65, 0.9], dtype=np.float32)
 # that draws about a quarter of the triangles.
 FINE_SHAPES = (28, 16)
 COARSE_SHAPES = (12, 6)
+# A marker's beacon, in shares of the scene's extent: its height, the radius
+# of its pole, and the radius of its head.
+BEACON = (0.5, 0.006, 0.04)
 # The reflection given to a floor that has none, for the reflections switch.
 FLOOR_REFLECTANCE = 0.15
 # Room in the scene for the shapes MuJoCo adds itself, such as light glyphs.
@@ -32,6 +36,7 @@ TRACK_RGBA = (0.12, 0.12, 0.12, 0.75)
 FILLED_RGBA = (0.85, 0.85, 0.85, 0.9)
 EVENT_RGB = (1.0, 0.72, 0.2)
 EPISODE_RGB = (0.25, 0.6, 1.0)
+TEXT_RGB = (0.92, 0.93, 0.95)
 # MuJoCo's fonts hold ASCII only; these characters have close equivalents.
 ASCII_EQUIVALENTS = str.maketrans(
     {"·": "|", "×": "x", "–": "-", "—": "-", "…": "...", "’": "'", "“": '"', "”": '"'}
@@ -93,7 +98,8 @@ class SceneRenderer:
             _add_shadows_and_reflections(scene.model)
             self._make_context(scene.model)
         markers = len(scene.recording.marker_names or ())
-        needed = scene.model.ngeom + len(scene.worlds) * markers + SPARE_SHAPES
+        shapes = (len(scene.worlds) + 2) * markers  # a beacon is two more
+        needed = scene.model.ngeom + shapes + SPARE_SHAPES
         if new_model or self._shapes.maxgeom < needed:
             self._shapes = mujoco.MjvScene(scene.model, maxgeom=needed)
         self.scene = scene
@@ -117,10 +123,16 @@ class SceneRenderer:
         hud: bool = True,
         setup: bool = False,
         corner: str = "",
+        inset: int = 0,
+        message: str = "",
+        hint: str = "",
     ) -> None:
         """Draw the scene as posed now, with the overlay unless ``hud`` is off.
 
-        ``corner`` is a line for the bottom right, such as the frame rate.
+        ``corner`` is a line for the bottom right, such as the frame rate. The
+        overlay keeps ``inset`` pixels clear on the left, for the panel.
+        ``message`` is shown at the top and ``hint`` large in the middle, even
+        without the overlay.
         """
         scene, shapes, context = self.scene, self._shapes, self._context
         if self.follow:
@@ -152,8 +164,20 @@ class SceneRenderer:
             mujoco.mjr_setBuffer(mujoco.mjtFramebuffer.mjFB_WINDOW, context)
         else:
             mujoco.mjr_render(viewport, shapes, context)
+        area = mujoco.MjrRect(inset, 0, max(1, width - inset), height)
         if hud:
-            self._overlay(viewport, status, flash, setup, corner)
+            self._overlay(area, status, flash, setup, corner)
+        if message:
+            mujoco.mjr_overlay(
+                mujoco.mjtFont.mjFONT_NORMAL,
+                mujoco.mjtGridPos.mjGRID_TOP,
+                area,
+                _ascii(message),
+                "",
+                context,
+            )
+        if hint:
+            self._hint(area, hint)
 
     def _make_context(self, model: mujoco.MjModel) -> None:
         """Make the OpenGL resources for ``model``, as fine as the graphics ask."""
@@ -181,6 +205,11 @@ class SceneRenderer:
         global_ = self.scene.model.vis.global_
         global_.offwidth, global_.offheight = self._buffer
         mujoco.mjr_resizeOffscreen(*self._buffer, self._context)
+
+    @property
+    def context(self) -> mujoco.MjrContext:
+        """The OpenGL resources, for drawing more on top, such as the panel."""
+        return self._context
 
     def read_pixels(self, width: int, height: int) -> np.ndarray:
         """The last drawing as an RGB image, ``(height, width, 3)``, top row first."""
@@ -246,37 +275,51 @@ class SceneRenderer:
                 shape.category = decoration
 
     def _add_markers(self) -> None:
-        """One sphere per drawn world and marker, in the scene's spare slots."""
-        scene, shapes = self.scene, self._shapes
+        """The markers, in the scene's spare slots: a sphere of each marker's
+        radius per drawn world, and over the highlighted world's markers a
+        beacon sized to the scene, carrying the marker's name, so that a small
+        target is found from any distance."""
+        scene = self.scene
         positions = scene.marker_positions()
         if positions is None:
             return
-        radii = scene.recording.marker_radius.astype(np.float64)
+        recording = scene.recording
+        radii = recording.marker_radius.astype(np.float64)
+        extent = float(scene.model.stat.extent)
+        height, pole, head = (share * extent for share in BEACON)
+        sphere, cylinder = mujoco.mjtGeom.mjGEOM_SPHERE, mujoco.mjtGeom.mjGEOM_CYLINDER
         for copy, markers in enumerate(positions):
-            if copy == scene.highlight:
-                rgba = MARKER_RGBA
-            elif scene.ghosts_visible:
-                rgba = GHOST_RGBA
-            else:
+            highlighted = copy == scene.highlight
+            if not (highlighted or scene.ghosts_visible):
                 continue
-            for position, radius in zip(markers, radii, strict=True):
-                if shapes.ngeom == shapes.maxgeom:
-                    return
-                shape = shapes.geoms[shapes.ngeom]
-                mujoco.mjv_initGeom(
-                    shape,
-                    mujoco.mjtGeom.mjGEOM_SPHERE,
-                    np.full(3, radius),
-                    position.astype(np.float64),
-                    _IDENTITY,
-                    rgba,
-                )
-                shape.category = mujoco.mjtCatBit.mjCAT_DECOR
-                shapes.ngeom += 1
+            rgba = MARKER_RGBA if highlighted else GHOST_RGBA
+            for position, radius, name in zip(
+                markers.astype(np.float64), radii, recording.marker_names, strict=True
+            ):
+                self._add_shape(sphere, (radius, radius, radius), position, rgba)
+                if highlighted:
+                    up = np.array([0.0, 0.0, height])
+                    size = (pole, height / 2, 0.0)
+                    self._add_shape(cylinder, size, position + up / 2, rgba)
+                    self._add_shape(sphere, (head,) * 3, position + up, rgba, name)
+
+    def _add_shape(self, kind, size, position, rgba, label: str = "") -> None:
+        """One decorative shape, which casts no shadow, if there is room for it."""
+        shapes = self._shapes
+        if shapes.ngeom == shapes.maxgeom:
+            return
+        shape = shapes.geoms[shapes.ngeom]
+        mujoco.mjv_initGeom(
+            shape, kind, np.asarray(size, dtype=np.float64), position, _IDENTITY, rgba
+        )
+        shape.category = mujoco.mjtCatBit.mjCAT_DECOR
+        if label:
+            shape.label = _ascii(label)
+        shapes.ngeom += 1
 
     def _overlay(
         self,
-        viewport: mujoco.MjrRect,
+        area: mujoco.MjrRect,
         status: str,
         flash: str,
         setup: bool,
@@ -286,12 +329,10 @@ class SceneRenderer:
         context = self._context
         normal, big = mujoco.mjtFont.mjFONT_NORMAL, mujoco.mjtFont.mjFONT_BIG
         grid = mujoco.mjtGridPos
-        above = self._timeline(viewport.width, viewport.height)
-        raised = mujoco.MjrRect(0, above, viewport.width, viewport.height - above)
+        above = self._timeline(area)
+        raised = mujoco.MjrRect(area.left, above, area.width, area.height - above)
         info = "\n".join(info_lines(self.scene))
-        mujoco.mjr_overlay(
-            normal, grid.mjGRID_TOPLEFT, viewport, _ascii(info), "", context
-        )
+        mujoco.mjr_overlay(normal, grid.mjGRID_TOPLEFT, area, _ascii(info), "", context)
         if status:
             mujoco.mjr_overlay(
                 normal, grid.mjGRID_BOTTOMLEFT, raised, _ascii(status), "", context
@@ -302,37 +343,38 @@ class SceneRenderer:
             )
         if flash:  # above the playback line, which can reach the middle
             lift = above + 2 * context.charHeight
-            clear = mujoco.MjrRect(0, lift, viewport.width, viewport.height - lift)
+            clear = mujoco.MjrRect(area.left, lift, area.width, area.height - lift)
             mujoco.mjr_overlay(
                 big, grid.mjGRID_BOTTOM, clear, _ascii(flash), "", context
             )
         if setup:
-            rows = max(1, viewport.height // context.charHeight - 2)
+            rows = max(1, area.height // context.charHeight - 2)
             lines = setup_lines(self.scene.recording.setup) or ["(no setup)"]
             if len(lines) > rows:
                 lines = lines[: rows - 1] + [f"... {len(lines) - rows + 1} more"]
             mujoco.mjr_overlay(
                 normal,
                 grid.mjGRID_TOPRIGHT,
-                viewport,
+                area,
                 _ascii("\n".join(lines)),
                 "",
                 context,
             )
 
-    def _timeline(self, width: int, height: int) -> int:
-        """Draw the timeline along the bottom; return the height it takes."""
+    def _timeline(self, area: mujoco.MjrRect) -> int:
+        """Draw the timeline along the area's bottom; return the height it takes."""
         scene, context = self.scene, self._context
         recording = scene.recording
         frames = recording.frame_count
-        bar = max(4, height // 100)
+        left, width = area.left, area.width
+        bar = max(4, area.height // 100)
 
         def x_at(frame: int) -> int:  # frames run from 0 to ``frames`` inclusive
-            return min(width - 2, round(frame / frames * width))
+            return left + min(width - 2, round(frame / frames * width))
 
-        mujoco.mjr_rectangle(mujoco.MjrRect(0, 0, width, bar), *TRACK_RGBA)
+        mujoco.mjr_rectangle(mujoco.MjrRect(left, 0, width, bar), *TRACK_RGBA)
         filled = round((scene.frame_index + 1) / frames * width)
-        mujoco.mjr_rectangle(mujoco.MjrRect(0, 0, filled, bar), *FILLED_RGBA)
+        mujoco.mjr_rectangle(mujoco.MjrRect(left, 0, filled, bar), *FILLED_RGBA)
         world = scene.worlds[scene.highlight]
         for frame in np.flatnonzero(recording.episode_start[:, world]):
             tick = mujoco.MjrRect(x_at(frame), 0, 2, max(2, bar // 2))
@@ -345,13 +387,13 @@ class SceneRenderer:
         ):
             x = x_at(frame)
             mujoco.mjr_rectangle(mujoco.MjrRect(x, 0, 2, bar + 3), *EVENT_RGB, 1.0)
-            text = _ascii(label)
-            text_width = sum(int(context.charWidth[ord(char)]) for char in text) + 8
-            left = int(np.clip(x - text_width // 2, 0, max(0, width - text_width)))
+            label = _ascii(label)
+            size = text_width(context, label) + 8
+            start = int(np.clip(x - size // 2, left, max(left, left + width - size)))
             mujoco.mjr_label(
-                mujoco.MjrRect(left, bar + 3, text_width, row),
+                mujoco.MjrRect(start, bar + 3, size, row),
                 mujoco.mjtFont.mjFONT_NORMAL,
-                text,
+                label,
                 0.1,
                 0.1,
                 0.1,
@@ -360,6 +402,29 @@ class SceneRenderer:
                 context,
             )
         return bar + 3 + row
+
+    def _hint(self, area: mujoco.MjrRect, hint: str) -> None:
+        """A large line in the middle of the area, on a dark band."""
+        context, hint = self._context, _ascii(hint)
+        width = text_width(context, hint, big=True) + 2 * context.charHeight
+        height = context.charHeightBig + context.charHeight
+        rect = mujoco.MjrRect(
+            area.left + (area.width - width) // 2,
+            area.bottom + (area.height - height) // 2,
+            width,
+            height,
+        )
+        mujoco.mjr_label(
+            rect,
+            mujoco.mjtFont.mjFONT_BIG,
+            hint,
+            0.07,
+            0.08,
+            0.1,
+            0.8,
+            *TEXT_RGB,
+            context,
+        )
 
 
 def info_lines(scene: ComposedScene) -> list[str]:

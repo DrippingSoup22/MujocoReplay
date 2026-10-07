@@ -230,6 +230,20 @@ a recording already does, so nothing is loaded separately.
 - the user runs it on the MX330 with Centipede's recordings and finds
   settings that play smoothly.
 
+**Result (2026-10-07):** built; the user's check on the MX330 is pending. The
+count rule, the settings and presets, the cache, the panel, both presets
+drawing, the scaled window drawing, and dropped files each have tests (49 in
+all; the 8 that draw skip without OpenGL). Centipede's repository was cloned
+read-only as the sibling folder, so the scene test with its model now runs,
+and a stand-in recording was simulated from that model with targets placed as
+Centipede places them. Measured in the container's software renderer, fine
+shapes cost 3.5 times the coarse ones, anti-aliasing 1.6 times, and shadows
+with reflections twice; the cache turned 0.76 s of composing 32 copies into
+13 ms. Driving the window through the panel found one fault, fixed: a click
+made while a frame was drawing landed where the next click did. The file
+picker could not be tried, as the container's Python has no tkinter.
+`docs/design.md` describes the graphics, the application, and the cache.
+
 ## Status
 
 | Stage | Status |
@@ -239,4 +253,4 @@ a recording already does, so nothing is loaded separately.
 | R3 — Renderer, playback, viewer | Built (2026-10-07); the user's window check pending |
 | R4 — Video | Built (2026-10-07); the user's check in a video player pending |
 | R5 — Documents and status | This project's documents done (2026-10-07); Centipede's links and the user's acceptance pending |
-| R6 — The application: panel, settings, and performance | In progress (2026-10-07) |
+| R6 — The application: panel, settings, and performance | Built (2026-10-07); the user's check on the MX330 pending |
