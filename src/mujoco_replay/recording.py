@@ -160,7 +160,9 @@ def read_recording(path: Path | str) -> Recording:
     for group in (MARKER_KEYS, INFO_KEYS, EVENT_KEYS):
         present = [key in arrays for key in group]
         if any(present) and not all(present):
-            missing = [key for key, here in zip(group, present) if not here]
+            missing = [
+                key for key, here in zip(group, present, strict=True) if not here
+            ]
             present_key = group[present.index(True)]
             raise fail(missing[0], f"is missing while {present_key} is present")
 

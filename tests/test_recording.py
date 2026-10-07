@@ -10,7 +10,11 @@ from mujoco_replay.recording import (
     write_recording,
 )
 
-MODEL = "<mujoco><worldbody><body name='b'><joint/><geom size='1'/></body></worldbody></mujoco>"
+MODEL = (
+    "<mujoco><worldbody>"
+    "<body name='b'><joint/><geom size='1'/></body>"
+    "</worldbody></mujoco>"
+)
 
 
 def full_recording() -> Recording:
