@@ -170,6 +170,8 @@ def read_recording(path: Path | str) -> Recording:
     if qpos.ndim != 3:
         raise fail("qpos", "must have shape (frames, worlds, positions)")
     frames, worlds = qpos.shape[:2]
+    if not frames or not worlds:
+        raise fail("qpos", "must hold at least one frame and one world")
     frame_seconds = float(arrays["frame_seconds"])
     if not frame_seconds > 0:
         raise fail("frame_seconds", "must be positive")

@@ -141,9 +141,11 @@ The file may hold more worlds than are drawn. The drawn set is chosen with
 `selected_ranks(K, levels, per_level)` over the file's `score`, descending and
 stable (`numpy.argsort(-score, kind="stable")`), with defaults of 4 levels and 8
 per level. Options widen or narrow this: `--levels`, `--per-level`, `--all`
-(draw every world), `--worlds 3,7,9` (explicit `world_ids`). The highlighted
-world starts as rank 0; a key moves the highlight through the drawn worlds in
-rank order, so each ghost can be inspected in colour.
+(draw every world), `--worlds 3,7,9` (explicit `world_ids`); `--all` and
+`--worlds` exclude each other, and a `--worlds` list that matches no world of
+a file is an error naming the file. The highlighted world starts as rank 0; a
+key moves the highlight through the drawn worlds in rank order, so each ghost
+can be inspected in colour.
 
 ## Playback and keys
 
@@ -151,8 +153,10 @@ rank order, so each ghost can be inspected in colour.
 index, playing or paused, and the speed as seconds of wall time per recorded
 frame. The default is 0.3 s per frame, so that a 20 ms step is visible as a
 step. The presets, in seconds per frame, are 3, 2, 1, 0.5, 0.3, 0.2, 0.1,
-0.05, then real time (`frame_seconds`), 2× and 4× real time; the overlay shows
-both the seconds per frame and the multiple of real time. Advancing uses wall
+0.05, then real time (`frame_seconds`), 2× and 4× real time, kept in order of
+speed, so that a file with frames longer than 0.05 s places real time among
+the fixed presets; the overlay shows both the seconds per frame and the
+multiple of real time. Advancing uses wall
 time, so a slow renderer skips frames at fast speeds rather than slowing down.
 When a file ends, playback continues with the next file in the playlist and
 stops at the end of the last one; Space at the very end replays that file.
@@ -291,7 +295,11 @@ mujoco-replay render FILE [FILE ...] --out PATH [--fps 30] [--speed SECONDS]
 ```
 
 `view` is the default subcommand. `python -m mujoco_replay` is the same
-command.
+command. Both subcommands draw at 1280 × 720 unless told otherwise, read and
+check every file before opening anything (the checks that need a later file's
+model come when playback reaches it), and exit with status 1 and a one-line
+message for a bad file or a missing OpenGL; `render` names a missing `video`
+extra the same way, and reports its progress on the error stream.
 
 ## Dependencies
 

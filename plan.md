@@ -172,6 +172,14 @@ with the reason; a link from Centipede's `docs/architecture.md` and
 **Done when** the documents describe the tool as built, and the user has
 accepted the end-of-stage commit in both projects.
 
+**Result (2026-10-07):** this project's half is done. The README's status,
+setup, and use sections match the built commands; `docs/design.md` records
+every change from the first design with its reason, stage by stage; and
+`docs/recording-format.md` now names the checks made at composition and the
+ASCII-only overlay. The links from Centipede's documents remain, because the
+development container had no access to that project, and with them the
+user's acceptance and the window and video checks of stages R3 and R4.
+
 ## Status
 
 | Stage | Status |
@@ -180,4 +188,4 @@ accepted the end-of-stage commit in both projects.
 | R2 — Scene composition | Complete (2026-10-07) |
 | R3 — Renderer, playback, viewer | Built (2026-10-07); the user's window check pending |
 | R4 — Video | Built (2026-10-07); the user's check in a video player pending |
-| R5 — Documents and status | Not started |
+| R5 — Documents and status | This project's documents done (2026-10-07); Centipede's links and the user's acceptance pending |

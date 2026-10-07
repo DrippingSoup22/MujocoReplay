@@ -15,14 +15,15 @@ overlay shows the facts of the run. The same scene can be rendered to a video.
 
 ## Status
 
-**Stage R4 built (2026-10-07):** the recording format, the rank rule, the
-scene composition, playback, the renderer, the window, and the video exist and
-are tested; Centipede writes recordings with the first two. `mujoco-replay
-FILE` opens the window and `mujoco-replay render FILE --out replay.mp4` writes
-a video. Both were verified in a container without a GPU, on offscreen frames,
-synthetic key presses, and a written video; they await the user's check on a
-real display and in a video player. Stage R5 brings the documents to their
-final state.
+**Stages R1 to R4 built, R5's documents done (2026-10-07):** the recording
+format, the rank rule, the scene composition, playback, the renderer, the
+window, and the video exist and are tested; Centipede writes recordings with
+the first two. `mujoco-replay FILE` opens the window and `mujoco-replay render
+FILE --out replay.mp4` writes a video. Both were verified in a container
+without a GPU, on offscreen frames, synthetic key presses, and a written
+video. What remains is the user's: the check of the window on a real display
+and of a video in a player, with Centipede's own recordings, and the links
+from Centipede's documents to this tool.
 
 ## Documentation
 
@@ -57,12 +58,23 @@ folder, in PowerShell:
 viewer itself needs only MuJoCo and NumPy. Use the native Windows environment
 for the window: OpenGL through WSL is unreliable on this machine.
 
+The tests that draw need OpenGL; without it they skip and say why. On a Linux
+machine without a display, `xvfb-run -a python -m pytest` runs them on a
+virtual display. MuJoCo can also draw there through EGL or OSMesa
+(`MUJOCO_GL=egl`), which the video's offscreen drawing supports through
+MuJoCo's own context helper; that path has not been tried yet.
+
 ## Use
 
 ```powershell
 mujoco-replay RECORDING.npz [RECORDING2.npz ...]
+mujoco-replay RECORDING.npz --all --speed 1
+mujoco-replay RECORDING.npz --worlds 3,7,9
 mujoco-replay render RECORDING.npz --out replay.mp4
 ```
 
-Several files play one after the other. The keys and options are listed in
-[`docs/design.md`](docs/design.md#playback-and-keys).
+Several files play one after the other. By default up to 32 worlds are drawn,
+eight from each quarter of the scores; `--all` draws every world and `--worlds`
+exactly those producer ids. Space plays and pauses, the arrows step and change
+speed, B moves the highlight, and the mouse moves the camera; every key and
+option is listed in [`docs/design.md`](docs/design.md#playback-and-keys).

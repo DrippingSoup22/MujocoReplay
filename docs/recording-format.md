@@ -62,17 +62,25 @@ Optional keys:
 
 Rules:
 
-- `qpos` uses the layout of the model compiled from `model_xml`; the scene
-  composition checks that `nq` matches `MjModel.nq`.
+- `qpos` uses the layout of the model compiled from `model_xml`.
 - Joints that are not inside a replicated body, such as a moving obstacle in
   the static scene, take their values from the highlighted world's row.
 - Marker, event, and info keys come in groups: a group is either complete or
   absent.
-- Shapes must agree with each other; `frame_seconds` is positive; event frames
-  lie in `[0, T]`; levels are at least `1`; `setup_json` parses as a JSON
-  object. The reader rejects anything else with an error naming the file and
-  the key. These are the only checks: the reader is where an outside file enters
-  the program, and the tool's own modules trust each other.
+- Shapes must agree with each other; `qpos` holds at least one frame and one
+  world; `frame_seconds` is positive; event frames lie in `[0, T]`; levels are
+  at least `1`; `setup_json` parses as a JSON object. The reader rejects anything else with an error naming the file and
+  the key.
+- The checks that need the model are made when the scene is composed:
+  `model_xml` must parse and compile, its `nq` must match `qpos`, and
+  `replicated_bodies` must name root bodies of the model. The error names the
+  recording's title and the key.
+- Text is drawn in MuJoCo's font, which holds ASCII only; other characters in
+  the title, names, and labels are replaced when drawn (`·` by `|`, accents
+  dropped, anything else by `?`).
+
+These are the only checks: an outside file enters the program at the reader
+and at the scene composition, and the tool's own modules trust each other.
 
 ## Writer and reader
 
