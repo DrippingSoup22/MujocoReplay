@@ -282,6 +282,11 @@ additions, each answering a finding:
   reach an event in a replay;
 - the list of keys on `F1`, because the panel never mentioned the keys;
 - `render --mode`, so that a video can be drawn as plainly as the window;
+- leaner graphics, from the performance review: Quality without reflections,
+  which doubled the drawing for a change of 0.3 in 255, and with 16 by 8
+  facets instead of 28 by 16; the scene not drawn again when only the overlay
+  or the panel changed; 4 MiB instead of up to 3.5 GB reserved for MuJoCo's
+  working arrays; composing 40 % quicker;
 - the optional format keys `level_count`, `rank`, and `ranked_worlds`, so
   that a file holding a selection of a producer's worlds can show "rank 37 of
   1,024" and "level 1 of 4" truthfully.

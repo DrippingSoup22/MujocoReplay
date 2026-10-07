@@ -23,8 +23,11 @@ from mujoco_replay.recording import Recording, RecordingError
 
 # Raised whenever the composition changes what it compiles, so that composites
 # cached by an older version are not used; and how many composites are kept.
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 CACHE_ENTRIES = 16
+# The composite's memory for MuJoCo's working arrays: nothing is simulated, so
+# little is needed, where MuJoCo's own sizing reserved 3.5 GB for 128 worlds.
+COMPOSITE_MEMORY = 4 << 20
 
 # The ghosts' grey, and their alpha at each strength when up to FADE_FROM
 # worlds are drawn; with more, it falls with the square root of their number,
@@ -207,13 +210,16 @@ class ComposedScene:
         for name in roots:
             spec.delete(spec.body(name))
         static = {body.name for body in spec.bodies}
+        # Lights on the moving bodies light the scene once, from the best world.
+        lit, unlit = self._parse(), self._parse()
+        _reduce_to(lit, roots, keep_lights=True)
+        _reduce_to(unlit, roots, keep_lights=False)
         for prefix in prefixes:
-            source = self._parse()
-            # Lights on the moving bodies light the scene once, from the best world.
-            _reduce_to(source, roots, keep_lights=prefix == "w0_")
+            source = (lit if prefix == "w0_" else unlit).copy()
             frame = spec.worldbody.add_frame()
             spec.attach(source, frame=frame, prefix=prefix)
         _keep_targets(spec, set(bodies), static, prefixes)
+        spec.memory = COMPOSITE_MEMORY
         return self._compile(spec, "the composed scene")
 
     def _parse(self) -> mujoco.MjSpec:

@@ -22,9 +22,9 @@ from mujoco_replay.ui import text_width
 
 # The highlighted world's markers; the ghosts' are ghost grey.
 MARKER_RGBA = np.array([0.95, 0.15, 0.65, 0.9], dtype=np.float32)
-# Facets around and along MuJoCo's round shapes: its defaults, and a coarse set
-# that draws about a quarter of the triangles.
-FINE_SHAPES = (28, 16)
+# Facets around and along MuJoCo's round shapes. MuJoCo's own 28 by 16 drew
+# 3.5 times the triangles of 16 by 8 with no visible difference.
+FINE_SHAPES = (16, 8)
 COARSE_SHAPES = (12, 6)
 # A marker's beacon, in shares of the scene's extent: its height, the radius
 # of its pole, and the radius of its head.
@@ -93,6 +93,9 @@ class SceneRenderer:
         self.markers_visible = True
         self.follow = False
         self.timeline_height = 0  # of the timeline last drawn, for clicks on it
+        self.drew_scene = False  # whether the last render drew the scene afresh
+        self._generation = 0  # counts the scenes and contexts shown
+        self._picture: tuple | None = None  # what the scene drawn last shows
         self.graphics = graphics
         self.scene: ComposedScene | None = None
         self._offscreen_size = offscreen_size
@@ -116,6 +119,7 @@ class SceneRenderer:
         if new_model or self._shapes.maxgeom < needed:
             self._shapes = mujoco.MjvScene(scene.model, maxgeom=needed)
         self.scene = scene
+        self._generation += 1
 
     def set_graphics(self, graphics: Graphics) -> None:
         """Draw from now on as ``graphics`` says; some changes remake the context."""
@@ -148,27 +152,56 @@ class SceneRenderer:
         the top right, such as the setup; ``corner`` is a line for the bottom
         right, such as the frame rate; ``message`` is shown at the top and
         ``hint`` large in the middle. These four show without the overlay too.
+
+        In a window, a scene that shows what it showed last time, when only
+        the overlay or the panel changed, is not drawn again: the picture in
+        the offscreen buffer is copied into the window once more.
         """
-        scene, shapes, context = self.scene, self._shapes, self._context
+        scene, shapes, context, camera = (
+            self.scene,
+            self._shapes,
+            self._context,
+            self.camera,
+        )
         if self.follow:
             self._look_at(scene.world_centre(scene.highlight))
-        mujoco.mjv_updateScene(
-            scene.model,
-            scene.data,
-            self.option,
-            None,
-            self.camera,
-            mujoco.mjtCatBit.mjCAT_ALL,
-            shapes,
+        picture = (
+            self._generation,
+            scene.frame_index,
+            scene.highlight,
+            scene.ghosts,
+            self.markers_visible,
+            self.graphics,
+            tuple(camera.lookat),
+            camera.distance,
+            camera.azimuth,
+            camera.elevation,
+            width,
+            height,
+            left,
         )
-        shapes.flags[mujoco.mjtRndFlag.mjRND_SHADOW] = self.graphics.shadows
-        shapes.flags[mujoco.mjtRndFlag.mjRND_REFLECTION] = self.graphics.reflections
-        if self.graphics.shadows:
-            self._keep_shadows_clean()
-        if self.markers_visible:
-            self._add_markers()
+        windowed = self._offscreen_size is None
+        self.drew_scene = not windowed or picture != self._picture
+        self._picture = picture
+        if self.drew_scene:
+            mujoco.mjv_updateScene(
+                scene.model,
+                scene.data,
+                self.option,
+                None,
+                camera,
+                mujoco.mjtCatBit.mjCAT_ALL,
+                shapes,
+            )
+            flags = shapes.flags
+            flags[mujoco.mjtRndFlag.mjRND_SHADOW] = self.graphics.shadows
+            flags[mujoco.mjtRndFlag.mjRND_REFLECTION] = self.graphics.reflections
+            if self.graphics.shadows:
+                self._keep_shadows_clean()
+            if self.markers_visible:
+                self._add_markers()
         viewport = mujoco.MjrRect(left, 0, max(1, width - left), height)
-        if self._offscreen_size is None:  # draw a share offscreen, scale it up
+        if windowed:  # draw a share offscreen, scale it up
             share = self.graphics.resolution / 100
             drawn = mujoco.MjrRect(
                 0,
@@ -178,7 +211,8 @@ class SceneRenderer:
             )
             self._fit_buffer(width, height)
             mujoco.mjr_setBuffer(mujoco.mjtFramebuffer.mjFB_OFFSCREEN, context)
-            mujoco.mjr_render(drawn, shapes, context)
+            if self.drew_scene:
+                mujoco.mjr_render(drawn, shapes, context)
             mujoco.mjr_blitBuffer(drawn, viewport, 1, 0, context)
             mujoco.mjr_setBuffer(mujoco.mjtFramebuffer.mjFB_WINDOW, context)
         else:
@@ -228,6 +262,7 @@ class SceneRenderer:
         detail = FINE_SHAPES if self.graphics.fine_shapes else COARSE_SHAPES
         quality.numslices, quality.numstacks = detail
         model.vis.global_.offwidth, model.vis.global_.offheight = self._buffer
+        self._generation += 1
         try:
             self._context = mujoco.MjrContext(model, self._font_scale)
         except mujoco.FatalError as error:
@@ -378,19 +413,21 @@ class SceneRenderer:
         if positions is None:
             return
         recording = scene.recording
-        radii = recording.marker_radius.astype(np.float64)
+        positions = positions.astype(np.float64)
+        sizes = np.repeat(recording.marker_radius.astype(np.float64)[:, None], 3, 1)
         extent = float(scene.model.stat.extent)
         height, pole, head = (share * extent for share in BEACON)
         sphere, cylinder = mujoco.mjtGeom.mjGEOM_SPHERE, mujoco.mjtGeom.mjGEOM_CYLINDER
+        ghost_rgba = scene.ghost_rgba
         for copy, markers in enumerate(positions):
             highlighted = copy == scene.highlight
             if not (highlighted or scene.ghosts_visible):
                 continue
-            rgba = MARKER_RGBA if highlighted else scene.ghost_rgba
-            for position, radius, name in zip(
-                markers.astype(np.float64), radii, recording.marker_names, strict=True
+            rgba = MARKER_RGBA if highlighted else ghost_rgba
+            for position, size, name in zip(
+                markers, sizes, recording.marker_names, strict=True
             ):
-                self._add_shape(sphere, (radius, radius, radius), position, rgba)
+                self._add_shape(sphere, size, position, rgba)
                 if highlighted:
                     up = np.array([0.0, 0.0, height])
                     size = (pole, height / 2, 0.0)

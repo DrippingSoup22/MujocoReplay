@@ -104,3 +104,22 @@ def test_framing_leaves_out_a_world_whose_poses_diverged(gl_context, make_record
     assert np.isfinite(renderer.camera.lookat).all()
     assert np.isfinite(renderer.camera.distance)
     renderer.close()
+
+
+def test_the_window_draws_the_scene_again_only_when_its_picture_changes(
+    gl_context, make_recording
+):
+    scene = ComposedScene(make_recording(frames=2, worlds=2), np.arange(2))
+    renderer = SceneRenderer(scene)  # into the window, as the viewer draws
+
+    renderer.render(160, 120, hud=False)
+    drawn = renderer.read_pixels(160, 120)
+    renderer.render(160, 120, hud=False, message="only the overlay changed")
+    renderer.render(160, 120, hud=False)
+    shown_again, again = renderer.drew_scene, renderer.read_pixels(160, 120)
+    scene.set_frame(1)
+    renderer.render(160, 120, hud=False)
+    renderer.close()
+
+    assert not shown_again and np.array_equal(again, drawn)
+    assert renderer.drew_scene  # a new frame is a new picture

@@ -92,8 +92,9 @@ its world's `qpos` exactly.
    texture would otherwise be copied once per world. Attaching each
    replicated body with `frame.attach_body` instead fails as soon as two root
    bodies share a material ("incompatible id in material array"). Attaching
-   moves the contents out of the source spec, so the XML is parsed again for
-   every copy.
+   moves the contents out of the source spec, so each copy attaches a copy
+   (`MjSpec.copy`) of a spec reduced once, which is quicker than parsing and
+   reducing again; copy 0 has a reduced spec of its own, with the lights.
 4. Fixes before compiling. Cameras and lights aimed at a body
    (`mode="targetbody"`) keep aiming at it across the split: one of the
    static scene aimed at a replicated body would aim at a body that no longer
@@ -102,7 +103,11 @@ its world's `qpos` exactly.
    prefix by attaching (`w3_post`), and loses it. Lights inside the
    replicated bodies are kept in copy 0 only, so that 32 copies of a tracking
    light do not light the scene 32 times over.
-5. Compile, and build the mapping by name. Copy `k`'s joints happen to sit in
+5. Set the composite's memory for MuJoCo's working arrays to 4 MiB
+   (`spec.memory`): nothing is simulated, and MuJoCo's own sizing reserved
+   118 MB for 16 worlds and 3.5 GB for 128, which Linux leaves unused but
+   Windows may count against its memory. Compile, and build the mapping by
+   name. Copy `k`'s joints happen to sit in
    a contiguous block of the composite's `qpos`, but nothing relies on that:
    for each joint of the original model and each copy `k`, the composite's
    `joint(f"w{k}_{name}")` gives its `qposadr`, and the joint type its width
@@ -119,11 +124,12 @@ its world's `qpos` exactly.
 7. The scene (`mujoco.MjvScene`) is allocated with `maxgeom` of the composite
    model's shapes plus the markers plus a margin.
 
-Composing takes about 0.7 s for 32 copies of the chain, 2 s for 64, and 8 s
-for 128 in the development container. MuJoCo's compiler grows with the square
-of the number of bodies (the same copies written out as plain XML compile 6
-to 8 times slower still), so 128 worlds take several seconds to open; the
-composed-scene cache of stage R6 removes the wait the second time. Spatial
+Composing Centipede's model takes 0.17 s for 16 copies, 0.45 s for 32, and
+6.2 s for 128 in the development container. MuJoCo's compiler and attaching
+grow with the square of the number of bodies (the same copies written out as
+plain XML compile 6 to 8 times slower still), so 128 worlds take several
+seconds to open; the composed-scene cache of stage R6 removes the wait the
+second time. Spatial
 tendons, skins, and flexible bodies (cloth) are not drawn, since they go with
 the other unused parts; a model compiled with `discardvisual` shows only its
 collision shapes, as MuJoCo itself would.
@@ -350,23 +356,35 @@ posing the frame 0.2 ms.
 
 ## Graphics settings
 
-Stage R6 measured where drawing time goes, with 32 copies of Centipede's
-model in Mesa's software renderer (on a graphics card the numbers are smaller
-and their ratios differ, but the order is telling): shadows and reflections
-together doubled the time, 4× anti-aliasing added 60 %, and MuJoCo's fine
-tessellation of round shapes, 28 facets around and 16 along, cost 3.5 times
-the coarse 12 by 6. MuJoCo draws every shape with its own draw call and has no
-instancing, so the time also grows with the number of worlds drawn, and
-overlapping translucent ghosts cost every pixel they cover.
+Stage R7's performance review measured where a frame's time goes, with 16,
+32, and 128 copies of Centipede's model: the Python and MuJoCo work on the
+processor, which carries over to the user's laptop, and the drawing in Mesa's
+software renderer, whose numbers only compare with each other. MuJoCo issues
+one draw call per shape, has no instancing, draws a translucent ghost twice,
+and draws everything again for a reflection: 32 worlds make 3,969 draws per
+frame without reflections and 8,064 with them. With Mesa's no-op driver, which
+issues the calls without drawing, issuing them took 9.8 ms at 32 worlds and
+41 ms at 128, the largest cost on the processor; posing a frame took 0.2 and
+0.8 ms. In the software renderer, against Performance, reflections added 93 %,
+4× anti-aliasing 86 %, shadows 57 %, and MuJoCo's own tessellation of round
+shapes (28 facets around, 16 along) 280 %; reflections changed the picture of
+Centipede's dark floor by 0.3 of 255 on average, and 16 by 8 facets changed
+it by less, even close up. So Quality now leaves reflections off (their
+switch stays), and fine shapes are 16 by 8: Quality then issues about as many
+draws as Performance and four times fewer triangles than before. A shadow map
+of 2048 or 1024 texels saved no time and showed jagged shadows, so MuJoCo's
+4096 stays. With 128 worlds, issuing the draws alone may take 15 to 30 ms on
+the laptop (an estimate: a third of Mesa's time), so 32 worlds is the
+smooth maximum there, and 128 a view for pausing.
 
 `Graphics` holds five switches, which two presets set at once:
 
 | Switch | Quality | Performance | How it is done |
 | --- | --- | --- | --- |
 | Shadows | on | off | MuJoCo's `mjRND_SHADOW` flag; a scene whose lights cast no shadow gets one from its first light (Centipede's light casts none), over at least 4 model extents (`vis.map.shadowclip`) |
-| Reflections | on | off | `mjRND_REFLECTION`; a floor (a plane with a material) that does not reflect reflects 0.08 |
+| Reflections | off | off | `mjRND_REFLECTION`; a floor (a plane with a material) that does not reflect reflects 0.08 |
 | Anti-aliasing | on | off | 4 samples in MuJoCo's offscreen buffer (`vis.quality.offsamples`) |
-| Fine shapes | on | off | `vis.quality.numslices` and `numstacks`: 28 and 16, or 12 and 6 |
+| Fine shapes | on | off | `vis.quality.numslices` and `numstacks`: 16 and 8, or 12 and 6 |
 | Resolution | 100 % | 75 % | the share of the window's width and height drawn, then scaled up |
 
 Changing a switch after a preset makes the mode "custom". The anti-aliasing
@@ -389,12 +407,20 @@ the chosen share of the window's size and copied into the window with
 `mjr_blitBuffer`, which scales it up smoothly; the overlay and the panel are
 then drawn into the window at its full resolution, so text stays sharp. The
 window itself has no multisampling, since the offscreen buffer does it. The
-buffer grows with `mjr_resizeOffscreen` when the window does.
+buffer grows with `mjr_resizeOffscreen` when the window does. When only the
+overlay or the panel changed, as when the mouse moves over a button, a
+message goes, or the panel scrolls, the scene's picture is the same: the
+renderer compares what the picture depends on (the scene and context shown,
+the frame, the highlight, the ghosts, the markers, the graphics, the camera,
+the size) with the last time, and copies the buffer into the window again
+instead of drawing the scene. The review measured a redraw for a hover at 128
+worlds falling from 51 ms to 2.3 ms with the no-op driver.
 
 The frame-rate readout, a switch of the panel, shows how long a frame takes
 to draw and the frame rate that allows (`draw 12.3 ms | up to 81 frames/s`):
 while it is on, each frame waits for the graphics card (`mjr_finish`) so that
-the time is the card's, not only the program's. It shows with the overlay
+the time is the card's, not only the program's; frames that only copy the
+picture again are not counted. It shows with the overlay
 hidden too, and starts measuring again when the graphics or the scene change,
 drawing once more at once so that a paused window shows the new time. The
 window draws only when
@@ -464,10 +490,10 @@ writes the model into memory (`mj_saveModel` with a buffer) and reads it from
 memory (`MjModel.from_binary_path` with the bytes as an asset), and Python
 does the file work, because MuJoCo's own file access may not open a path
 with characters outside the system's code page. A run opened again, or a count changed back, then
-skips the compiler: with Centipede's model, 16 copies load in 6 ms instead of
-0.30 s, 32 in 13 ms instead of 0.76 s, and 128 in 55 ms instead of 7.6 s
-(plus about 15 ms to compile the single model, which the joint mapping still
-needs). The files take 5 to 27 MB; the newest 16 are kept, and a damaged one
+skips composing: with Centipede's model, 16 or 32 copies load in about 30 ms
+instead of 0.17 or 0.45 s, and 128 in 0.1 s instead of 6.2 s, which includes
+about 15 ms to compile the single model, which the joint mapping still
+needs. The files take 5 to 27 MB; the newest 16 are kept, and a damaged one
 is composed again (MuJoCo then prints a warning and, as it does for every
 warning, appends it to `MUJOCO_LOG.TXT` in the current folder). The panel's
 switch turns the cache off, and says where the cache is.

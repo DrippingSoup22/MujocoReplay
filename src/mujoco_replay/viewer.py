@@ -342,7 +342,8 @@ class Viewer:
         loaded = self.playback is not None
         # While the next file is composed, the scene still shows the last one.
         if loaded and self._shown_file == self.playback.file_index:
-            self.scene.set_frame(self.playback.frame_index)
+            if self.scene.frame_index != self.playback.frame_index:
+                self.scene.set_frame(self.playback.frame_index)
         side = None
         if self.help:
             side = HELP
@@ -366,8 +367,8 @@ class Viewer:
         hover = self._pixels(*self._cursor)
         self.boxes = self._layout()
         self.panel.draw(self.boxes, height, context, hover, self.settings.panel)
-        if self.settings.frame_rate:  # wait for the graphics card, to time it
-            mujoco.mjr_finish()
+        if self.settings.frame_rate and self.renderer.drew_scene:
+            mujoco.mjr_finish()  # wait for the graphics card, to time it
             self._draw_seconds.append(time.perf_counter() - start)
             self._dirty |= first  # show the first time at once, even paused
         glfw.swap_buffers(self.window)
