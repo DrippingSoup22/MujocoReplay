@@ -176,3 +176,33 @@ def test_a_click_on_the_timeline_pauses_at_that_frame(window, make_recording):
 
     assert viewer.playback.frame_index == 7 and not viewer.playback.playing
     viewer.renderer.close()
+
+
+def test_switching_the_frame_rate_on_times_a_frame_even_when_nothing_moved(
+    window, saved
+):
+    viewer = Viewer(window, Settings(cache=False), 0.3)
+    viewer._draw()
+
+    viewer._act("frame rate")
+    viewer._draw()  # the picture is the same, but there is a frame to time
+
+    assert len(viewer._draw_seconds) == 1 and viewer._dirty  # shown at once
+    viewer.renderer.close()
+
+
+def test_a_held_letter_acts_once_and_shift_b_goes_back_whatever_the_case(
+    window, make_recording
+):
+    viewer = Viewer(window, Settings(worlds=3, cache=False), 0.3)
+    viewer.load([make_recording(worlds=3)])
+
+    def type_b(action, mods) -> int:
+        viewer._on_key(window, glfw.KEY_B, 0, action, mods)
+        viewer._on_char(window, ord("B"))  # a capital, as with Shift or Caps Lock
+        return viewer.scene.highlight
+
+    assert type_b(glfw.PRESS, glfw.MOD_SHIFT) == 2  # Shift+B: back, from 0 to 2
+    assert type_b(glfw.REPEAT, glfw.MOD_SHIFT) == 2  # held: no more
+    assert type_b(glfw.PRESS, 0) == 0  # Caps Lock alone: forward
+    viewer.renderer.close()

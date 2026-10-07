@@ -93,14 +93,13 @@ KEYS = {
     glfw.KEY_F1: "keys",
 }
 # Keys by the character they type, so that they follow the keyboard's layout;
-# a capital letter does what its small letter does, unless listed.
+# a capital letter does what its small letter does, and Shift+B goes back.
 CHARACTERS = {
     "0": "default speed",
     "r": "restart",
     "n": "next file",
     "p": "previous file",
     "b": "next world",
-    "B": "previous world",
     "g": "ghosts",
     "m": "markers",
     "v": "reset view",
@@ -113,23 +112,32 @@ CHARACTERS = {
     "q": "quit",
     "?": "keys",
 }
-# What F1 shows.
+# What F1 shows, in short lines, so that two columns fit beside the panel.
 HELP = [
-    "Space: play or pause",
-    "Left, Right: one frame back, forward",
-    "Up, Down: faster, slower; 0: default speed",
-    "Home, End: first, last frame; R: restart",
+    "Space: play, pause",
+    "Right, Left: step, step back",
+    "Up, Down: faster, slower",
+    "0: default speed",
+    "Home, End: first, last frame",
+    "R: restart the file",
     "N, P: next, previous file",
-    "B, Shift+B: next, previous world",
-    "Double-click a world: highlight it",
-    "G: ghosts; M: markers",
-    "V: reset the view; T: look from above",
-    "C: centre on the highlight; F: follow it",
-    "Left drag: rotate; with Shift: turn only",
-    "Right drag: pan; wheel or middle drag: zoom",
-    "Click the timeline: go to that frame",
-    "H: overlay; I: setup; O: open recordings",
-    "Tab: panel; F1 or ?: these keys; Q, Esc: quit",
+    "B: next world",
+    "Shift+B: previous world",
+    "Double-click: highlight a world",
+    "G: ghosts   M: markers",
+    "V: reset the view",
+    "T: look from above",
+    "C: centre on the highlight",
+    "F: follow the highlight",
+    "Left drag: rotate",
+    "Shift and left drag: turn",
+    "Right drag: pan",
+    "Wheel, middle drag: zoom",
+    "Click the timeline: go there",
+    "H: overlay   I: setup",
+    "O: open recordings",
+    "Tab: panel   F1, ?: these keys",
+    "Q, Esc: quit",
 ]
 
 
@@ -259,6 +267,7 @@ class Viewer:
         )
         self._dirty = True
         self._cursor = glfw.get_cursor_pos(window)
+        self._held = self._shift = False  # of the key whose character comes next
         self._hovered: str | None = None
         self._pressed: str | None = None  # the panel action a press began on
         self._dragging = False  # a drag that began on the scene, not the panel
@@ -349,7 +358,7 @@ class Viewer:
             side = HELP
         elif loaded and self.setup:
             side = setup_lines(self.scene.recording.setup) or ["(no setup)"]
-        rate, first = self._rate(), not self._draw_seconds
+        rate, first = self._rate(), self.settings.frame_rate and not self._draw_seconds
         start = time.perf_counter()
         self.renderer.render(
             width,
@@ -363,6 +372,7 @@ class Viewer:
             inset=self._inset,
             message=self._message,
             hint="" if loaded else "Open recordings (O), or drop .npz files here",
+            fresh=first,  # a frame to time, even when only the overlay changed
         )
         hover = self._pixels(*self._cursor)
         self.boxes = self._layout()
@@ -789,6 +799,8 @@ class Viewer:
             self._dirty = True
 
     def _on_key(self, window, key: int, scancode: int, action: int, mods: int) -> None:
+        # GLFW sends a key's character right after the key itself.
+        self._held, self._shift = action == glfw.REPEAT, bool(mods & glfw.MOD_SHIFT)
         stepping = key in (glfw.KEY_RIGHT, glfw.KEY_LEFT)
         if action == glfw.RELEASE or (action == glfw.REPEAT and not stepping):
             return
@@ -797,8 +809,12 @@ class Viewer:
             self._act(name)
 
     def _on_char(self, window, codepoint: int) -> None:
-        character = chr(codepoint)
-        name = CHARACTERS.get(character) or CHARACTERS.get(character.lower())
+        """A typed character's action, once per press however long it is held."""
+        if self._held:
+            return
+        name = CHARACTERS.get(chr(codepoint).lower())
+        if name == "next world" and self._shift:
+            name = "previous world"
         if name is not None:
             self._act(name)
 

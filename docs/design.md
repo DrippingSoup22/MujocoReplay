@@ -239,10 +239,11 @@ that frame (`Playback.seek`).
 | Tab | Show or hide the side panel (remembered) |
 | Esc, Q | Quit |
 
-Right and Left repeat while held. Letter keys are read as the characters they
-type (GLFW's character callback), so that they follow the keyboard's layout:
-on a French keyboard Q is the key marked Q, not the one where an American Q
-sits. Mouse: left drag rotates, right drag pans, middle drag zooms, through
+Right and Left repeat while held; every other key acts once per press. Letter
+keys are read as the characters they type (GLFW's character callback), so
+that they follow the keyboard's layout: on a French keyboard Q is the key
+marked Q, not the one where an American Q sits. Shift is read from the key
+itself, so that Caps Lock does not turn B into Shift+B. Mouse: left drag rotates, right drag pans, middle drag zooms, through
 `mujoco.mjv_moveCamera` (in MuJoCo 3.12 it takes no scene argument); Shift
 with the left drag turns around the vertical only, and Shift with the right
 drag pans in the horizontal plane. The wheel zooms in when turned away from
@@ -286,7 +287,11 @@ recording's text are replaced: `·` by `|`, accents dropped, the rest by `?`.
   mid-word, so each line is drawn on its own, in as many columns as it takes;
   the columns share the free width, a line too long for its column is cut,
   and lines beyond the columns that fit are counted on the last line. The
-  list of keys (`F1`) is drawn the same way, in the same place.
+  lines go right of the top-left lines, or below them across the whole
+  width, whichever leaves out fewer lines and then cuts fewer: right of a
+  long title there may be no room at all. The list of keys (`F1`) is drawn
+  the same way, in short lines, so that two columns fit beside the panel at
+  150 % scaling.
 - Bottom right, above the playback line: the frame-rate readout, when it is
   on.
 
@@ -303,8 +308,9 @@ worlds and their markers at frame 0, from a raised angle, at a distance of 0.8
 times their spread plus 1.2 times the composite model's `stat.extent`; `V`,
 or the panel's Reset button, frames them so again, and `T` looks straight
 down. Framing leaves out a world whose positions are not finite or lie more
-than 1,000 extents from the others' median, as a diverged simulation leaves
-them, and neither centring nor following moves the camera to a point that is
+than 1,000 extents from the others' median (from the best world's centre,
+when half the worlds diverged and the median lies between them), as a
+diverged simulation leaves them, and neither centring nor following moves the camera to a point that is
 not finite: one such world could otherwise take the camera with it and blank
 the picture (the third review found that). A
 world's centre is the centre of mass of all its replicated root bodies,
@@ -420,7 +426,9 @@ The frame-rate readout, a switch of the panel, shows how long a frame takes
 to draw and the frame rate that allows (`draw 12.3 ms | up to 81 frames/s`):
 while it is on, each frame waits for the graphics card (`mjr_finish`) so that
 the time is the card's, not only the program's; frames that only copy the
-picture again are not counted. It shows with the overlay
+picture again are not counted, and the first frame after the readout is
+switched on, or after the graphics or the scene change, draws the scene even
+when nothing moved, so that there is always a time to show. It shows with the overlay
 hidden too, and starts measuring again when the graphics or the scene change,
 drawing once more at once so that a paused window shows the new time. The
 window draws only when

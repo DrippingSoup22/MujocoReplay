@@ -79,7 +79,8 @@ Rules:
   `ranked_worlds` is at least `K`; `replicated_bodies` names each body once;
   `setup_json` parses as a JSON object nested at most 32 levels deep.
 - The reader rejects anything else with an error naming the file and the key,
-  and a damaged or half-written file as one that cannot be read. Keys it does
+  and a damaged or half-written file, whatever error NumPy, the zip module,
+  or zlib raises on it, as one that cannot be read. Keys it does
   not know are ignored, so that a file from a newer producer still opens.
 - Positions that are not finite, as a diverging simulation leaves them, are
   accepted: such a world is not drawn, and the camera does not follow it.
@@ -105,7 +106,9 @@ and at the scene composition, and the tool's own modules trust each other.
   that a viewer opening the newest file never finds it half written. NumPy
   numbers and arrays in the setup are written as plain numbers and lists, and
   anything else JSON cannot hold, such as a path, as text. A `Recording` given
-  part of a group raises `ValueError` when it is made.
+  part of a group, or a level count or ranks that break the rules above,
+  raises `ValueError` when it is made, so that no file is written that the
+  reader would refuse.
 - `read_recording(path) -> Recording`: reads and checks the file.
 
 Importing `mujoco_replay.recording` or `mujoco_replay.selection` imports only

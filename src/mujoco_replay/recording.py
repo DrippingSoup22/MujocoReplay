@@ -13,7 +13,6 @@ docs/recording-format.md.
 import json
 import os
 import re
-import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -101,8 +100,9 @@ class Recording:
     def __post_init__(self) -> None:
         """Cast the arrays and fill the defaults of the per-world fields.
 
-        A group given in part raises ``ValueError``, so that the writer never
-        writes a file the reader would refuse.
+        A group given in part, or a level count or ranks that break the
+        format's rules, raises ``ValueError``, so that the writer never writes
+        a file the reader would refuse.
         """
         for group in (MARKER_KEYS, INFO_KEYS, EVENT_KEYS, RANK_KEYS):
             given = [name for name in group if getattr(self, name) is not None]
@@ -146,6 +146,11 @@ class Recording:
             value = getattr(self, name)
             if value is not None:
                 set_field(self, name, int(value))
+        problem = _ranking_problem(
+            worlds, self.level, self.level_count, self.rank, self.ranked_worlds
+        )
+        if problem is not None:
+            raise ValueError(" ".join(problem))
 
     @property
     def frame_count(self) -> int:
@@ -213,15 +218,7 @@ def read_recording(path: Path | str) -> Recording:
         return _read(path)
     except RecordingError:
         raise
-    except (
-        OSError,
-        ValueError,
-        TypeError,
-        AttributeError,
-        EOFError,
-        MemoryError,
-        zipfile.BadZipFile,
-    ) as error:  # a damaged or half-written file, whatever breaks first
+    except Exception as error:  # a damaged file breaks NumPy, zip, or zlib anywhere
         raise RecordingError(f"{path} cannot be read as a recording: {error}") from None
 
 
@@ -289,19 +286,15 @@ def _read(path: Path) -> Recording:
             raise fail(key, f"must have shape {shape}, has {arrays[key].shape}")
     if "level" in arrays and arrays["level"].min() < 1:
         raise fail("level", "must be 1 or more")
-    if "level_count" in arrays:
-        if "level" not in arrays:
-            raise fail("level_count", "needs level")
-        if arrays["level_count"] < arrays["level"].max():
-            raise fail("level_count", "must be at least the highest level")
-    if "rank" in arrays:
-        ranks, ranked = arrays["rank"], int(arrays["ranked_worlds"])
-        if ranked < worlds:
-            raise fail("ranked_worlds", f"must be at least the {worlds} worlds")
-        if ranks.min() < 1 or ranks.max() > ranked:
-            raise fail("rank", f"must lie between 1 and ranked_worlds, {ranked}")
-        if len(np.unique(ranks)) < worlds:
-            raise fail("rank", "must give each world its own rank")
+    level_count, ranked = (
+        int(arrays[key]) if key in arrays else None
+        for key in ("level_count", "ranked_worlds")
+    )
+    problem = _ranking_problem(
+        worlds, arrays.get("level"), level_count, arrays.get("rank"), ranked
+    )
+    if problem is not None:
+        raise fail(*problem)
     if "replicated_bodies" in arrays:
         names = [str(name) for name in arrays["replicated_bodies"]]
         repeated = sorted({name for name in names if names.count(name) > 1})
@@ -358,6 +351,31 @@ def _read(path: Path) -> Recording:
     )
 
 
+def _ranking_problem(
+    worlds: int,
+    level: np.ndarray | None,
+    level_count: int | None,
+    rank: np.ndarray | None,
+    ranked_worlds: int | None,
+) -> tuple[str, str] | None:
+    """The first rule a level count or ranks break, as a key and its problem."""
+    if level_count is not None:
+        if level is None:
+            return "level_count", "needs level"
+        if level_count < level.max():
+            return "level_count", "must be at least the highest level"
+    if rank is not None:
+        if rank.shape != (worlds,):
+            return "rank", f"must have shape ({worlds},)"
+        if ranked_worlds < worlds:
+            return "ranked_worlds", f"must be at least the {worlds} worlds"
+        if rank.min() < 1 or rank.max() > ranked_worlds:
+            return "rank", f"must lie between 1 and ranked_worlds, {ranked_worlds}"
+        if len(np.unique(rank)) < worlds:
+            return "rank", "must give each world its own rank"
+    return None
+
+
 def _deeper_than(value: Any, limit: int) -> bool:
     """Whether a JSON value nests objects or lists more than ``limit`` deep."""
     stack = [(value, 0)]
@@ -376,7 +394,7 @@ def in_name_order(paths: list[str]) -> list[str]:
 
     def key(path: str) -> list[int | str]:
         parts = re.split(r"(\d+)", path.lower())
-        return [int(part) if part.isdigit() else part for part in parts]
+        return [int(part) if part.isdecimal() else part for part in parts]
 
     return sorted(paths, key=key)
 

@@ -306,7 +306,17 @@ and speckles with its shadows and pale sticks with its reflection; the scene
 centred behind the panel; the panel overflowing a laptop's window at 150 %
 scaling; buttons acting on press, so that a drag switched to Quality; the
 highlight wandering off the best world between files; and a README that
-did not say how to set up on Windows or which Python versions work.
+did not say how to set up on Windows or which Python versions work. A last
+review of the changes themselves then found eight more defects, all fixed:
+a recording with one damaged byte (an unknown zip compression, a broken
+array header, a bad zlib stream) still closed the window; the key list and
+the setup could be cut short or vanish right of a long title at 150 %
+scaling, and now go below the top-left lines when that shows more; the
+frame-rate readout could stay on "measuring" forever, since an unchanged
+picture is not drawn again; cutting a long text took quadratic time; held
+letter keys repeated, and Caps Lock turned B into Shift+B; a `Recording`
+took ranks or a level count its own reader refused; framing failed when
+half the worlds diverged; and one file name could not be sorted.
 
 ## Status
 

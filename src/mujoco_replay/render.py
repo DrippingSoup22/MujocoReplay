@@ -144,6 +144,7 @@ class SceneRenderer:
         inset: int = 0,
         message: str = "",
         hint: str = "",
+        fresh: bool = False,
     ) -> None:
         """Draw the scene as posed now, with the overlay unless ``hud`` is off.
 
@@ -155,7 +156,8 @@ class SceneRenderer:
 
         In a window, a scene that shows what it showed last time, when only
         the overlay or the panel changed, is not drawn again: the picture in
-        the offscreen buffer is copied into the window once more.
+        the offscreen buffer is copied into the window once more, unless
+        ``fresh`` asks for a drawing, as timing one does.
         """
         scene, shapes, context, camera = (
             self.scene,
@@ -181,7 +183,7 @@ class SceneRenderer:
             left,
         )
         windowed = self._offscreen_size is None
-        self.drew_scene = not windowed or picture != self._picture
+        self.drew_scene = not windowed or fresh or picture != self._picture
         self._picture = picture
         if self.drew_scene:
             mujoco.mjv_updateScene(
@@ -219,18 +221,25 @@ class SceneRenderer:
             mujoco.mjr_render(viewport, shapes, context)
         area = mujoco.MjrRect(inset, 0, max(1, width - inset), height)
         line = context.charHeight
-        above, top_left = self._overlay(area, status, flash) if hud else (0, 0)
+        above, info_width, info_height = (
+            self._overlay(area, status, flash) if hud else (0, 0, 0)
+        )
         self.timeline_height = above
         if hud and status:
             above += 2 * line  # the playback line's own row
-        if side:  # right of the top-left lines, above the playback line
-            free = mujoco.MjrRect(
-                area.left + top_left,
-                above,
-                max(1, area.width - top_left),
-                max(1, area.height - above),
+        if side:  # beside or below the top-left lines, clear of the rest
+            bottom = above + (2 * line if corner else 0)
+            top = area.height - (2 * line if message else 0)
+            beside = mujoco.MjrRect(
+                area.left + info_width,
+                bottom,
+                max(1, area.width - info_width),
+                max(1, top - bottom),
             )
-            self._side(free, side)
+            below = mujoco.MjrRect(
+                area.left, bottom, area.width, max(1, top - info_height - bottom)
+            )
+            self._side((beside, below), side)
         if corner:  # above the playback line and the timeline, if any
             raised = mujoco.MjrRect(area.left, above, area.width, area.height - above)
             mujoco.mjr_overlay(
@@ -308,9 +317,13 @@ class SceneRenderer:
             points.extend(markers.reshape(-1, 3))
         points = np.array(points)
         points = points[np.isfinite(points).all(axis=1)]
-        if len(points):
-            middle = np.median(points, axis=0)
-            near = np.linalg.norm(points - middle, axis=1) <= FRAMED_EXTENTS * extent
+        if len(points):  # around the median, or the best world if none is near it
+            for anchor in (np.median(points, axis=0), points[0]):
+                near = (
+                    np.linalg.norm(points - anchor, axis=1) <= FRAMED_EXTENTS * extent
+                )
+                if near.any():
+                    break
             points = points[near]
         self.follow = False
         self.camera.elevation = -25.0
@@ -453,11 +466,12 @@ class SceneRenderer:
         area: mujoco.MjrRect,
         status: str,
         flash: str,
-    ) -> tuple[int, int]:
+    ) -> tuple[int, int, int]:
         """The text corners and the timeline; the middle stays clear.
 
-        Returns the height the timeline takes at the bottom and the width the
-        top-left lines take. Lines too long for the area are cut.
+        Returns the height the timeline takes at the bottom, and the width and
+        the height the top-left lines take. Lines too long for the area are
+        cut.
         """
         context = self._context
         line = context.charHeight
@@ -481,35 +495,21 @@ class SceneRenderer:
             mujoco.mjr_overlay(
                 big, grid.mjGRID_BOTTOM, clear, _ascii(flash), "", context
             )
-        return above, max(text_width(context, text) for text in info) + 2 * line
+        width = max(text_width(context, text) for text in info) + 2 * line
+        return above, width, len(info) * (line + line // 3) + line // 2
 
-    def _side(self, area: mujoco.MjrRect, lines: list[str]) -> None:
-        """Lines at the area's top right, in the columns that fit.
+    def _side(self, areas: tuple[mujoco.MjrRect, ...], lines: list[str]) -> None:
+        """Lines at the top right of whichever area shows them best, in columns.
 
         MuJoCo's overlay holds 500 characters at most, so each line is drawn
-        on its own. The columns the lines need share the area's width, down to
-        ten characters' height each, and a line too long for its column is
-        cut; lines beyond the columns that fit are counted on the last one.
+        on its own. The area that leaves out the fewest lines, then cuts the
+        fewest, is used, the first one on a tie.
         """
         context = self._context
         line = context.charHeight
         step = line + line // 4
-        rows = max(1, (area.height - line // 2) // step)
-        needed = -(-len(lines) // rows)  # columns, rounded up
-        widest = min(max(area.width // needed, 10 * line), area.width) - line
-        texts = [_cut(context, _ascii(text), widest) for text in lines]
-        columns = [texts[start : start + rows] for start in range(0, len(texts), rows)]
-        kept: list[tuple[list[str], int]] = []
-        for column in columns:
-            width = max(text_width(context, text) for text in column) + line
-            if sum(width for _, width in kept) + width > area.width:
-                break
-            kept.append((column, width))
-        if not kept:
-            return
-        shown = sum(len(column) for column, _ in kept)
-        if shown < len(texts):
-            kept[-1][0][-1] = f"... {len(texts) - shown + 1} more"
+        layouts = [(self._columns(area, lines), area) for area in areas]
+        (kept, _, _), area = min(layouts, key=lambda layout: layout[0][1:])
         x = area.left + area.width - sum(width for _, width in kept)
         top = area.bottom + area.height
         for column, width in kept:
@@ -526,6 +526,37 @@ class SceneRenderer:
                 )
                 _write(context, rect, text)
             x += width
+
+    def _columns(
+        self, area: mujoco.MjrRect, lines: list[str]
+    ) -> tuple[list[tuple[list[str], int]], int, int]:
+        """How lines fit an area in columns: the columns that fit, each with its
+        width, then how many lines are left out and how many are cut.
+
+        The columns the lines need share the area's width, down to ten
+        characters' height each; a line too long for its column is cut, and
+        lines beyond the columns that fit are counted on the last one shown.
+        """
+        context = self._context
+        line = context.charHeight
+        step = line + line // 4
+        rows = max(1, (area.height - line // 2) // step)
+        needed = -(-len(lines) // rows)  # columns, rounded up
+        widest = min(max(area.width // needed, 10 * line), area.width) - line
+        whole = [_ascii(text) for text in lines]
+        texts = [_cut(context, text, widest) for text in whole]
+        cut = sum(text != full for text, full in zip(texts, whole, strict=True))
+        columns = [texts[start : start + rows] for start in range(0, len(texts), rows)]
+        kept: list[tuple[list[str], int]] = []
+        for column in columns:
+            width = max(text_width(context, text) for text in column) + line
+            if sum(width for _, width in kept) + width > area.width:
+                break
+            kept.append((column, width))
+        shown = sum(len(column) for column, _ in kept)
+        if kept and shown < len(texts):
+            kept[-1][0][-1] = f"... {len(texts) - shown + 1} more"
+        return kept, len(texts) - shown, cut
 
     def frame_at(self, x: float, area_left: int, area_width: int) -> int:
         """The frame under ``x`` on the timeline along an area's bottom."""
@@ -664,12 +695,20 @@ def _write(
 
 
 def _cut(context: mujoco.MjrContext, text: str, width: int) -> str:
-    """The text, shortened with "..." when it is wider than ``width`` pixels."""
+    """The text, shortened with "..." when it is wider than ``width`` pixels.
+
+    One pass over the characters, so that a very long title or setup value
+    cannot slow every frame down.
+    """
     if text_width(context, text) <= width:
         return text
-    while text and text_width(context, text + "...") > width:
-        text = text[:-1]
-    return text + "..."
+    widths, room = context.charWidth, width - text_width(context, "...")
+    used = 0
+    for index, char in enumerate(text):
+        used += int(widths[ord(char)]) if ord(char) < len(widths) else 0
+        if used > room:
+            return text[:index] + "..."
+    return text
 
 
 def _number(value: float) -> str:

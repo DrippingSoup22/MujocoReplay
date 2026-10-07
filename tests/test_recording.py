@@ -163,6 +163,28 @@ def test_a_half_written_file_is_rejected_as_unreadable(tmp_path):
         read_recording(half)
 
 
+def unknown_compression(data: bytes) -> bytes:
+    """An unknown compression method for the first entry of the zip's directory."""
+    start = data.index(b"PK\x01\x02")
+    return data[: start + 10] + (99).to_bytes(2, "little") + data[start + 12 :]
+
+
+def broken_array_header(data: bytes) -> bytes:
+    """qpos's header without its closing brace, read before the zip's checksum."""
+    brace = data.index(b"), }", data.index(b"qpos.npy")) + 3
+    return data[:brace] + b" " + data[brace + 1 :]
+
+
+@pytest.mark.parametrize("damage", [unknown_compression, broken_array_header])
+def test_a_file_with_one_damaged_byte_is_rejected_as_unreadable(tmp_path, damage):
+    path = tmp_path / "damaged.npz"
+    write_recording(path, Recording(MODEL, 0.02, np.zeros((2000, 2, 4))))
+    path.write_bytes(damage(path.read_bytes()))
+
+    with pytest.raises(RecordingError, match="damaged.npz cannot be read"):
+        read_recording(path)
+
+
 def test_the_writer_takes_numpy_values_and_refuses_half_a_group(tmp_path):
     path = tmp_path / "numpy.npz"
     setup = {"seed": np.int64(3), "rate": np.float32(0.5), "folder": tmp_path}
@@ -179,7 +201,25 @@ def test_the_writer_takes_numpy_values_and_refuses_half_a_group(tmp_path):
         Recording(MODEL, 0.5, np.zeros((1, 1, 4)), marker_names=("target",))
 
 
+@pytest.mark.parametrize(
+    "fields, problem",
+    [
+        ({"level_count": 2}, "level_count needs level"),
+        ({"level": [3, 1], "level_count": 2}, "level_count must be at least"),
+        ({"rank": [0, 1], "ranked_worlds": 4}, "rank must lie between 1 and"),
+        ({"rank": [2, 2], "ranked_worlds": 4}, "rank must give each world"),
+        ({"rank": [1, 2], "ranked_worlds": 1}, "ranked_worlds must be at least"),
+    ],
+)
+def test_ranks_or_a_level_count_the_reader_would_refuse_are_refused_when_made(
+    fields, problem
+):
+    with pytest.raises(ValueError, match=problem):
+        Recording(MODEL, 0.5, np.zeros((1, 2, 4)), **fields)
+
+
 def test_files_are_put_in_the_order_of_their_names_with_numbers_by_value():
     names = ["cycle_10.npz", "cycle_2.npz", "Cycle_1.npz"]
 
     assert in_name_order(names) == ["Cycle_1.npz", "cycle_2.npz", "cycle_10.npz"]
+    assert in_name_order(["²1.npz", "a.npz"]) == ["a.npz", "²1.npz"]

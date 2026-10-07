@@ -5,9 +5,10 @@ from dataclasses import replace
 import mujoco
 import numpy as np
 
-from mujoco_replay.render import SceneRenderer
+from mujoco_replay.render import SceneRenderer, _cut
 from mujoco_replay.scene import ComposedScene
 from mujoco_replay.settings import PERFORMANCE, QUALITY
+from mujoco_replay.ui import text_width
 
 
 def test_a_frame_shows_the_scene_and_changes_when_the_ghosts_hide(
@@ -123,3 +124,36 @@ def test_the_window_draws_the_scene_again_only_when_its_picture_changes(
 
     assert not shown_again and np.array_equal(again, drawn)
     assert renderer.drew_scene  # a new frame is a new picture
+
+
+def test_framing_keeps_the_best_world_when_half_the_worlds_diverged(
+    gl_context, make_recording
+):
+    recording = make_recording(frames=1, worlds=2)
+    recording.qpos[0, :, 1:4] = [(10, 0, 0.5), (1e6, 0, 0.5)]  # far, but finite
+    scene = ComposedScene(recording, np.arange(2))
+
+    renderer = SceneRenderer(scene, offscreen_size=(64, 48))  # frames all at once
+    renderer.close()
+
+    assert np.allclose(renderer.camera.lookat, scene.world_centre(0))
+
+
+def test_side_lines_are_cut_in_a_narrow_area_and_whole_in_a_wide_one(
+    gl_context, make_recording
+):
+    scene = ComposedScene(make_recording(frames=1, worlds=1), np.arange(1))
+    renderer = SceneRenderer(scene, offscreen_size=(64, 48))
+    lines = [f"setting number {index} = a value of some length" for index in range(12)]
+
+    _, narrow_hidden, narrow_cut = renderer._columns(
+        mujoco.MjrRect(0, 0, 90, 600), lines
+    )
+    _, wide_hidden, wide_cut = renderer._columns(mujoco.MjrRect(0, 0, 900, 600), lines)
+    long = _cut(renderer.context, "x" * 10_000, 200)  # one pass, however long
+    long_width = text_width(renderer.context, long)
+    renderer.close()
+
+    assert narrow_cut == 12 and narrow_hidden == 0
+    assert wide_cut == wide_hidden == 0
+    assert long.endswith("...") and long_width <= 200
