@@ -68,13 +68,14 @@ MuJoCo's own context helper; that path has not been tried yet.
 
 ```powershell
 mujoco-replay RECORDING.npz [RECORDING2.npz ...]
-mujoco-replay RECORDING.npz --all --speed 1
-mujoco-replay RECORDING.npz --worlds 3,7,9
+mujoco-replay RECORDING.npz --worlds 32 --speed 1
+mujoco-replay RECORDING.npz --ids 3,7,9
 mujoco-replay render RECORDING.npz --out replay.mp4
 ```
 
-Several files play one after the other. By default up to 32 worlds are drawn,
-eight from each quarter of the scores; `--all` draws every world and `--worlds`
-exactly those producer ids. Space plays and pauses, the arrows step and change
+Several files play one after the other. By default 16 worlds are drawn: the
+file's worlds are split by score rank into 16 bands and the best of each is
+drawn. `--worlds N` draws `N` (1, 2, 4, … up to 128) and `--ids` exactly those
+producer ids. Space plays and pauses, the arrows step and change
 speed, B moves the highlight, and the mouse moves the camera; every key and
 option is listed in [`docs/design.md`](docs/design.md#playback-and-keys).

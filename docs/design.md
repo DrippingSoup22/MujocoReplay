@@ -32,7 +32,7 @@ blob anyway.
 | Module | Does | Imports at module level |
 | --- | --- | --- |
 | `recording.py` | The file format: `Recording`, `write_recording`, `read_recording` | NumPy |
-| `selection.py` | `selected_ranks` and `choose_worlds(recording, levels, per_level, world_ids=None, all_worlds=False)`: which of a file's worlds to draw, and in what rank order | NumPy |
+| `selection.py` | `selected_ranks` and `level_of_ranks`, shared with producers; `world_counts` and `choose_worlds(recording, count, world_ids=None)`: which of a file's worlds to draw, and in what rank order | NumPy |
 | `scene.py` | `ComposedScene`: the composite model, the joint mapping, colours, markers, `set_frame(frame_index)`, and `fits`/`show` to reuse the composite for another file of the same model | MuJoCo, NumPy |
 | `playback.py` | `Playback`: the playlist, current frame, play/pause, speed presets, stepping, the events just passed, and the playback line of the overlay; pure logic, no graphics | none |
 | `render.py` | `SceneRenderer`: the MuJoCo render context, camera, drawing of the scene, markers, overlay, timeline, and reading pixels back; works in a window or offscreen | MuJoCo, NumPy |
@@ -111,9 +111,9 @@ its world's `qpos` exactly.
 Composing takes about 0.7 s for 32 copies of the chain, 2 s for 64, and 8 s
 for 128 in the development container. MuJoCo's compiler grows with the square
 of the number of bodies (the same copies written out as plain XML compile 6
-to 8 times slower still), so `--all` on a file with hundreds of worlds is slow
-to open. Spatial tendons are not drawn, since they go with the other unused
-parts.
+to 8 times slower still), so 128 worlds take several seconds to open; the
+composed-scene cache of stage R6 removes the wait the second time. Spatial
+tendons are not drawn, since they go with the other unused parts.
 
 Colours: every geom of a ghost copy gets the ghost grey `(0.55, 0.55, 0.55)`
 and `geom_matid = -1`, so that a material or texture cannot override the grey.
@@ -139,15 +139,21 @@ own with `M`.
 
 ## Choosing the worlds
 
-The file may hold more worlds than are drawn. The drawn set is chosen with
-`selected_ranks(K, levels, per_level)` over the file's `score`, descending and
-stable (`numpy.argsort(-score, kind="stable")`), with defaults of 4 levels and 8
-per level. Options widen or narrow this: `--levels`, `--per-level`, `--all`
-(draw every world), `--worlds 3,7,9` (explicit `world_ids`); `--all` and
-`--worlds` exclude each other, and a `--worlds` list that matches no world of
-a file is an error naming the file. The highlighted world starts as rank 0; a
-key moves the highlight through the drawn worlds in rank order, so each ghost
-can be inspected in colour.
+The file may hold more worlds than are drawn. The viewer draws `N` of them,
+1, 2, 4, … up to 128 and up to the file's worlds (`world_counts`): the file's
+worlds are ordered by `score`, descending and stable
+(`numpy.argsort(-score, kind="stable")`), split into `N` bands of as equal a
+size as possible, and the best world of each band is drawn, which is
+`selected_ranks(K, N, 1)`. So 1 draws the best world, 2 the best of the upper
+and of the lower half, and a count at or above the file's worlds draws them
+all; the rule asked for by the user on 2026-10-07 replaced the first design's
+8 evenly spaced worlds from each of 4 bands. The bands follow rank, not score
+values, so that every band holds a world to draw. `--worlds N` sets the count
+(16 by default) and `--ids 3,7,9` draws exactly those `world_ids` instead; the
+two exclude each other, and an `--ids` list that matches no world of a file is
+an error naming the file. The highlighted world starts as rank 0; a key moves
+the highlight through the drawn worlds in rank order, so each ghost can be
+inspected in colour.
 
 ## Playback and keys
 
@@ -296,11 +302,10 @@ files at 640 × 360 and 0.1 s per frame took 2 min 18 s to export.
 ## Command line
 
 ```text
-mujoco-replay [view] FILE [FILE ...] [--levels 4] [--per-level 8] [--all]
-              [--worlds IDS] [--speed SECONDS] [--no-hud] [--width W] [--height H]
+mujoco-replay [view] FILE [FILE ...] [--worlds 16 | --ids IDS]
+              [--speed SECONDS] [--no-hud] [--width W] [--height H]
 mujoco-replay render FILE [FILE ...] --out PATH [--fps 30] [--speed SECONDS]
-              [--width 1280] [--height 720] [--levels 4] [--per-level 8]
-              [--all] [--worlds IDS] [--no-hud]
+              [--width 1280] [--height 720] [--worlds 16 | --ids IDS] [--no-hud]
 ```
 
 `view` is the default subcommand. `python -m mujoco_replay` is the same

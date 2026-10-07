@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 
 from mujoco_replay.recording import Recording, RecordingError, read_recording
-from mujoco_replay.selection import choose_worlds
+from mujoco_replay.selection import DEFAULT_WORLDS, MAX_WORLDS, choose_worlds
 
 
 def main(arguments: list[str] | None = None) -> int:
@@ -71,12 +71,10 @@ def drawn_worlds(
     parser: argparse.ArgumentParser,
 ) -> np.ndarray:
     """The indices of the worlds to draw from one file, best first."""
-    worlds = choose_worlds(
-        recording, options.levels, options.per_level, options.worlds, options.all
-    )
+    worlds = choose_worlds(recording, options.worlds, options.ids)
     if not len(worlds):
-        ids = ",".join(str(world_id) for world_id in options.worlds)
-        parser.error(f"--worlds {ids}: none of these worlds is in {path}")
+        ids = ",".join(str(world_id) for world_id in options.ids)
+        parser.error(f"--ids {ids}: none of these worlds is in {path}")
     return worlds
 
 
@@ -91,12 +89,15 @@ def build_parser() -> argparse.ArgumentParser:
     render = subcommands.add_parser("render", help="write a video")
     for subcommand in (view, render):
         subcommand.add_argument("files", nargs="+", help="recording files, in order")
-        subcommand.add_argument("--levels", type=_positive(int), default=4)
-        subcommand.add_argument("--per-level", type=_positive(int), default=8)
         which = subcommand.add_mutually_exclusive_group()
-        which.add_argument("--all", action="store_true", help="draw every world")
         which.add_argument(
-            "--worlds", type=_world_ids, help="producer world ids, comma-separated"
+            "--worlds",
+            type=_between(1, MAX_WORLDS),
+            default=DEFAULT_WORLDS,
+            help="how many worlds to draw: the best of as many rank bands",
+        )
+        which.add_argument(
+            "--ids", type=_world_ids, help="draw these producer world ids instead"
         )
         subcommand.add_argument(
             "--speed",
@@ -105,8 +106,8 @@ def build_parser() -> argparse.ArgumentParser:
             help="seconds per recorded frame",
         )
         subcommand.add_argument("--no-hud", action="store_true")
-        subcommand.add_argument("--width", type=_at_least(16), help="in pixels")
-        subcommand.add_argument("--height", type=_at_least(16), help="in pixels")
+        subcommand.add_argument("--width", type=_between(16), help="in pixels")
+        subcommand.add_argument("--height", type=_between(16), help="in pixels")
     render.add_argument("--out", required=True, help="the MP4 file to write")
     render.add_argument("--fps", type=_positive(int), default=30)
     return parser
@@ -132,13 +133,14 @@ def _positive(kind: type):
     return parse
 
 
-def _at_least(minimum: int):
-    """An argument type: a whole number of at least ``minimum``."""
+def _between(low: int, high: int | None = None):
+    """An argument type: a whole number from ``low`` to ``high``, both included."""
 
     def parse(text: str) -> int:
         value = int(text)
-        if value < minimum:
-            raise argparse.ArgumentTypeError(f"{text} is below {minimum}")
+        if value < low or (high is not None and value > high):
+            allowed = f"from {low} to {high}" if high else f"{low} or more"
+            raise argparse.ArgumentTypeError(f"{text} is not {allowed}")
         return value
 
     parse.__name__ = "int"

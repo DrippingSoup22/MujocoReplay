@@ -6,7 +6,7 @@ import sys
 import numpy as np
 
 from mujoco_replay.recording import Recording
-from mujoco_replay.selection import choose_worlds, selected_ranks
+from mujoco_replay.selection import choose_worlds, selected_ranks, world_counts
 
 
 def test_every_rank_is_kept_when_the_worlds_fit():
@@ -33,18 +33,29 @@ def test_uneven_bands_and_one_per_level_take_each_bands_first_rank():
     assert np.all(np.diff(many) > 0)
 
 
-def test_choose_worlds_follows_the_scores_best_first():
+def test_a_count_of_worlds_takes_the_best_of_as_many_rank_bands():
+    # Rank order, best first: 1, 3, 6, 2, 5, 7, 0, 4.
     recording = Recording(
         "<mujoco/>",
         0.02,
-        np.zeros((1, 5, 1)),
-        score=[0.1, 0.9, 0.5, 0.9, -1.0],
-        world_ids=[10, 11, 12, 13, 14],
+        np.zeros((1, 8, 1)),
+        score=[0.1, 0.9, 0.5, 0.8, -1.0, 0.3, 0.7, 0.2],
+        world_ids=[10, 11, 12, 13, 14, 15, 16, 17],
     )
 
-    assert choose_worlds(recording, levels=2, per_level=1).tolist() == [1, 0]
-    assert choose_worlds(recording, 2, 1, all_worlds=True).tolist() == [1, 3, 2, 0, 4]
-    assert choose_worlds(recording, 2, 1, world_ids=[14, 10]).tolist() == [0, 4]
+    assert choose_worlds(recording, 1).tolist() == [1]
+    assert choose_worlds(recording, 2).tolist() == [1, 5]  # best of each half
+    assert choose_worlds(recording, 4).tolist() == [1, 6, 5, 0]
+    assert choose_worlds(recording, 16).tolist() == [1, 3, 6, 2, 5, 7, 0, 4]
+    assert choose_worlds(recording, 2, world_ids=[14, 10]).tolist() == [0, 4]
+
+
+def test_the_counts_offered_double_up_to_128_and_the_files_worlds():
+    assert world_counts(1) == [1]
+    assert world_counts(3) == [1, 2, 3]
+    assert world_counts(32) == [1, 2, 4, 8, 16, 32]
+    assert world_counts(48) == [1, 2, 4, 8, 16, 32, 48]
+    assert world_counts(1024) == [1, 2, 4, 8, 16, 32, 64, 128]
 
 
 def test_the_producer_half_imports_neither_mujoco_nor_graphics():
