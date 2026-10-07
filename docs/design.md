@@ -45,47 +45,84 @@ them to write files. They must stay free of MuJoCo and graphics imports.
 
 ## Composing the scene
 
-Verified with MuJoCo 3.12.0 on 2026-10-07 against Centipede's model
-(69 position coordinates, one root body `segment_00` holding the whole
-centipede, 64 shapes, 55 actuators, a floor and one light in the world body):
+An `MjSpec` is MuJoCo's editable form of a model: parsed from XML, changed
+element by element, then compiled into the `MjModel` that simulation and
+drawing use. The steps below were first tried with MuJoCo 3.12.0 on
+2026-10-07 against Centipede's model (69 position coordinates, one root body
+`segment_00` holding the whole centipede, 64 shapes, 55 actuators, a floor and
+one light in the world body). Stage R2 built them and verified them against
+the test model of `tests/conftest.py` and a centipede-like chain written for
+the purpose (65 position coordinates, 52 shapes, a mesh, a skybox, and a
+textured floor): every body of 32 copies matched the original model posed with
+its world's `qpos` exactly.
 
 1. Parse the recording's `model_xml` with `mujoco.MjSpec.from_string(xml,
-   assets=...)`. The assets are the `asset/<name>` arrays as bytes. This spec
-   becomes the static scene: delete every actuator, sensor, tendon, equality
-   constraint, contact pair and exclusion, and keyframe (`spec.delete(item)`),
-   then delete every replicated body (`spec.delete(spec.body(name))`).
-   Actuators and the rest are not needed for drawing and would otherwise refer
-   to joints that no longer exist.
-2. For each drawn world `k`, parse the XML again into a fresh spec, delete the
-   same items, and attach each replicated body under a prefix:
-   `frame = spec.worldbody.add_frame(); frame.attach_body(source.body(name),
-   f"w{k}_", "")`. Attaching moves the body out of its source spec, so the
-   source must be re-parsed for every copy (the `copy_during_attach` flag was
-   not enough in the test). Names of bodies, joints, geoms, and sites in the
-   copy carry the prefix.
-3. Compile. In the test, two copies gave `nq = 138` and three gave `207`, with
-   copy `k`'s joints at a contiguous block starting at `k · nq`. Do not rely
-   on that: build the mapping by name. For each joint `j` of the original
-   compiled model and each copy `k`, read `composite.joint(f"w{k}_{name}")`
-   and its `qposadr` and `jnt_type`, and build an index array `(K, nq)` that
-   says where each original `qpos` entry goes. Joints of the static scene map
-   to their own addresses and take values from the highlighted world's row.
-4. `set_frame(t)` scatters `qpos[t, drawn_worlds]` through the index array
+   assets=...)`; the assets are the `asset/<name>` arrays as bytes. Every
+   unnamed body and joint is given a name (`body7`, `joint3`), the same one on
+   every parse, because joints are matched by name below and attaching leaves
+   unnamed parts unnamed. Compiling this spec gives the original model, whose
+   `qpos` layout the recording uses; its `nq` must match the file's.
+2. The same spec becomes the static scene: delete every actuator, sensor,
+   tendon, equality constraint, contact pair and exclusion, keyframe, tuple,
+   skin, and flex (`spec.delete(item)`), then every replicated body
+   (`spec.delete(spec.body(name))`). These parts are not needed for drawing
+   and would otherwise name bodies and joints that no longer exist.
+3. For each drawn world `k`, parse the XML again, reduce that spec to the
+   replicated bodies and the materials, textures, meshes, and height fields
+   they use, and attach it whole under a prefix: `frame =
+   spec.worldbody.add_frame(); spec.attach(source, frame=frame,
+   prefix=f"w{k}_")`. Names of bodies, joints, geoms, sites, and the copied
+   materials and meshes carry the prefix. Attaching a spec copies everything
+   left in it, hence the reduction: the floor, the world's lights, or a skybox
+   texture would otherwise be copied once per world. Attaching each
+   replicated body with `frame.attach_body` instead fails as soon as two root
+   bodies share a material ("incompatible id in material array"). Attaching
+   moves the contents out of the source spec, so the XML is parsed again for
+   every copy.
+4. Two fixes before compiling. A camera or light of the static scene aimed at
+   a replicated body (`mode="targetbody"`) would aim at a body that no longer
+   exists, which does not compile; it is aimed at copy 0's body, the best
+   world's, instead. Lights inside the replicated bodies are kept in copy 0
+   only, so that 32 copies of a tracking light do not light the scene 32
+   times over.
+5. Compile, and build the mapping by name. Copy `k`'s joints happen to sit in
+   a contiguous block of the composite's `qpos`, but nothing relies on that:
+   for each joint of the original model and each copy `k`, the composite's
+   `joint(f"w{k}_{name}")` gives its `qposadr`, and the joint type its width
+   (7 for free, 4 for ball, 1 for slide and hinge). The result is an index
+   array `(K, columns)` saying where each replicated `qpos` entry goes. Joints
+   of the static scene map to their own addresses and take values from the
+   highlighted world's row.
+6. `set_frame(t)` scatters `qpos[t, drawn_worlds]` through the index array
    into `data.qpos`, then runs `mujoco.mj_kinematics` and `mujoco.mj_camlight`
    (lights attached to bodies need the second call, or the scene is lit only
-   by the headlight). No `mj_forward`: no contacts, no dynamics.
-5. The scene (`mujoco.MjvScene`) is allocated with `maxgeom` of the composite
+   by the headlight). No `mj_forward`: no contacts, no dynamics. A frame takes
+   0.2 ms for 32 copies of the chain.
+7. The scene (`mujoco.MjvScene`) is allocated with `maxgeom` of the composite
    model's shapes plus the markers plus a margin.
 
-Colours: every geom of a ghost copy gets `geom_rgba = (0.55, 0.55, 0.55,
-0.15)` and `geom_matid = -1`, so that a material or texture cannot override
-the grey; the highlighted copy keeps the original model's `geom_rgba` and
-`geom_matid`, taken from the original compiled model by geom name. Both arrays
-are plain fields of `MjModel` and can be changed at any time, so the highlight
-can move from one world to another while playing. MuJoCo draws transparent
-shapes after opaque ones, so the highlighted world shows through the ghosts.
-The alpha value is a starting point to tune by eye; it may need to drop as
-more worlds are drawn.
+Composing takes about 0.7 s for 32 copies of the chain, 2 s for 64, and 8 s
+for 128 in the development container. MuJoCo's compiler grows with the square
+of the number of bodies (the same copies written out as plain XML compile 6
+to 8 times slower still), so `--all` on a file with hundreds of worlds is slow
+to open. Spatial tendons are not drawn, since they go with the other unused
+parts.
+
+Colours: every geom of a ghost copy gets the ghost grey `(0.55, 0.55, 0.55)`
+and `geom_matid = -1`, so that a material or texture cannot override the grey.
+Its alpha is 0.15 times the shape's own drawn alpha, so that a shape the model
+hides stays hidden; the drawn alpha is the material's when the geom's colour
+is MuJoCo's default grey `(0.5, 0.5, 0.5, 1)`, and the geom's otherwise, which
+is the rule MuJoCo draws by. The highlighted copy keeps the colours the
+composite was compiled with, which are the original model's; they are read
+from the composite itself, because every copy has its own prefixed materials,
+whose ids differ from the original's. Both arrays are plain fields of
+`MjModel` and can be changed at any time, so the highlight can move from one
+world to another while playing. Hiding the ghosts sets their alpha to 0, and
+MuJoCo leaves shapes with alpha 0 out of the scene altogether. MuJoCo draws
+transparent shapes after opaque ones, so the highlighted world shows through
+the ghosts. The alpha value is a starting point to tune by eye; it may need to
+drop as more worlds are drawn.
 
 Markers: after `mjv_updateScene`, one sphere per drawn world and marker is
 added with `mjv_initGeom` into the scene's spare slots: the highlighted

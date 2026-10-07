@@ -93,6 +93,18 @@ skipping otherwise.
 - a recording whose `nq` differs from the model's is rejected with a clear
   error.
 
+**Result (2026-10-07):** done; 7 tests pass, and the case with Centipede's
+model skips in the development container, which has no `../Centipede`; it
+runs wherever that folder exists. The small model lives in `tests/conftest.py`
+for the later stages' tests too, and adds what real models contain: a static
+door on a hinge, a hidden shape, a material, an unnamed joint, and a light
+aimed at the robot. Three steps of the composition changed, with the reasons
+in [docs/design.md](docs/design.md#composing-the-scene): each copy is a
+reduced spec attached whole, because attaching two root bodies that share a
+material fails; unnamed bodies and joints are named before joints are matched;
+and a static camera or light aimed at a moving body is aimed at copy 0.
+Composing 32 copies of a 52-shape chain takes 0.7 s.
+
 ### R3 — Renderer, playback, viewer
 
 **Builds:** `src/mujoco_replay/playback.py`, `render.py`, `viewer.py`, the
@@ -140,7 +152,7 @@ accepted the end-of-stage commit in both projects.
 | Stage | Status |
 | --- | --- |
 | R1 — Package and recording format | Complete (2026-10-07) |
-| R2 — Scene composition | Not started |
+| R2 — Scene composition | Complete (2026-10-07) |
 | R3 — Renderer, playback, viewer | Not started |
 | R4 — Video | Not started |
 | R5 — Documents and status | Not started |

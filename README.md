@@ -15,10 +15,12 @@ overlay shows the facts of the run. The same scene can be rendered to a video.
 
 ## Status
 
-**Stage R1 complete (2026-10-07):** the package, the recording file format,
-and the rank rule exist and are tested; Centipede writes recordings with them.
-The scene, the viewer, and the video (stages R2 to R5 of the plan) are not
-built yet: the command only parses its arguments.
+**Stage R2 complete (2026-10-07):** the package, the recording file format,
+the rank rule, and the scene composition exist and are tested; Centipede
+writes recordings with them. The scene composes any recorded model into one
+copy per drawn world, poses every copy frame by frame, and colours the ghosts.
+The viewer and the video (stages R3 to R5 of the plan) are not built yet: the
+command only parses its arguments.
 
 ## Documentation
 
@@ -35,7 +37,7 @@ built yet: the command only parses its arguments.
 MujocoReplay/
 ├─ docs/                Format and design documents
 ├─ src/mujoco_replay/   The package: recording format, selection, scene, renderer, viewer, video
-├─ tests/               Automated tests, one file per module
+├─ tests/               Automated tests, one file per module; shared helpers in conftest.py
 └─ archive/             Superseded material; local only
 ```
 
