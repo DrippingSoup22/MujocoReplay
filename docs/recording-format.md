@@ -87,9 +87,8 @@ Rules:
   `model_xml` must parse and compile, its `nq` must match `qpos`, and
   `replicated_bodies` must name root bodies of the model. The error names the
   recording's title and the key.
-- Text is drawn in MuJoCo's font, which holds ASCII only; other characters in
-  the title, names, and labels are replaced when drawn (`·` by `|`, accents
-  dropped, anything else by `?`).
+- Any text may be written; the viewer draws ASCII only, as
+  [design.md](design.md#overlay) explains.
 
 These are the only checks: an outside file enters the program at the reader
 and at the scene composition, and the tool's own modules trust each other.
