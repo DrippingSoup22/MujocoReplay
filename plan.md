@@ -1,7 +1,8 @@
 # Development plan
 
-This plan builds MujocoReplay in six stages; the user asked for the sixth on
-2026-10-07, once the first five were built. It is paired with Stage 7 of the
+This plan builds MujocoReplay in seven stages; the user asked for the sixth on
+2026-10-07, once the first five were built, and for the seventh, a full
+review, once the sixth was. It is paired with Stage 7 of the
 sibling `Centipede` project (`../Centipede/plan.md`), which records the files
 this tool replays. The format is fixed in
 [docs/recording-format.md](docs/recording-format.md) and the design in
@@ -18,9 +19,9 @@ and when each stage is done.
   other way round.
 - Rendering is verified with offscreen frames written to PNG files; the window
   and its controls are verified by the user.
-- Commits and pushes only when the user asks, under the user's identity, with
-  no AI attribution. The user creates the remote repository; the assistant
-  initialises Git locally when asked.
+- The assistant commits and pushes on its own, under the user's identity,
+  with no AI attribution, and keeps branches short; `AGENTS.md` holds the
+  rules the user set on 2026-10-07.
 
 ## Order of work across the two projects
 
@@ -255,6 +256,53 @@ byte-order mark was ignored; and a click queued behind Tab acted on the
 hidden panel. `docs/design.md` describes the graphics, the application, and
 the cache.
 
+### R7 — Full review
+
+Asked by the user on 2026-10-07, after R6: review the whole application from
+several sides, its soundness and its look, fix what is found, and add a few
+settings that let the user shape the view and interact better, each with its
+reason, keeping the application simple.
+
+**Builds:** five independent reviews, each by running code: varied MuJoCo
+models and damaged or hostile files; the fit with what Centipede writes,
+using Centipede's own recorder code; the window driven like a user through
+every control, at several sizes; where the time of a frame goes; and the
+documents, the packaging, and Windows. A visual review of screenshots of the
+window and of offscreen frames in both modes. Then the fixes, and these
+additions, each answering a finding:
+
+- the ghosts' strength (faint, normal, strong, hidden), fading as more worlds
+  are drawn, because with a fixed alpha the ghosts buried the highlighted
+  world;
+- Reset view (`V`) and a view from above (`T`), because a lost camera had no
+  way back, and a top view shows how far each world got;
+- a double-click on a world highlights it, because inspecting an outlier took
+  up to 127 presses of `B`;
+- a click or drag on the timeline goes to that frame, the natural way to
+  reach an event in a replay;
+- the list of keys on `F1`, because the panel never mentioned the keys;
+- `render --mode`, so that a video can be drawn as plainly as the window;
+- the optional format keys `level_count`, `rank`, and `ranked_worlds`, so
+  that a file holding a selection of a producer's worlds can show "rank 37 of
+  1,024" and "level 1 of 4" truthfully.
+
+**Done when:** every finding is fixed or answered, with a test where a test
+can hold it, the documents describe the result, and the user has the list of
+what remains for them.
+
+**Result (2026-10-07):** done; `docs/design.md` gives each change with its
+reason. The reviews found, among others: a half-written file (Centipede
+writes its files in place) closing the window; models compiled with
+`fusestatic` crashing the composition; the reader taking text for numbers;
+one diverged world blanking the picture; a cache key that two different sets
+of assets could share; the file picker able to hang on a full pipe; the
+setup cut at MuJoCo's 500 characters, mid-word; Quality drawing black dashes
+and speckles with its shadows and pale sticks with its reflection; the scene
+centred behind the panel; the panel overflowing a laptop's window at 150 %
+scaling; buttons acting on press, so that a drag switched to Quality; the
+highlight wandering off the best world between files; and a README that
+did not say how to set up on Windows or which Python versions work.
+
 ## Status
 
 | Stage | Status |
@@ -263,5 +311,6 @@ the cache.
 | R2 — Scene composition | Complete (2026-10-07) |
 | R3 — Renderer, playback, viewer | Built (2026-10-07); the user's window check pending |
 | R4 — Video | Built (2026-10-07); the user's check in a video player pending |
-| R5 — Documents and status | This project's documents done (2026-10-07); Centipede's links and the user's acceptance pending |
+| R5 — Documents and status | Complete (2026-10-07); Centipede's README and architecture document now point here |
 | R6 — The application: panel, settings, and performance | Built (2026-10-07); the user's check on the MX330 pending |
+| R7 — Full review | Done (2026-10-07); the user's check on the MX330, with Centipede's own recordings, pending |

@@ -25,8 +25,9 @@ file described in [recording-format.md](recording-format.md).
   its own settings, never MuJoCo's raw options, with a Quality and a
   Performance mode so that it plays on a weak graphics card (stage R6).
 
-Not goals: physics, editing, side-by-side scenes, or a graphical user
-interface beyond keys and the mouse. Drawing is bounded by legibility and the
+Not goals: physics, editing, side-by-side scenes, or a graphical toolkit:
+the panel is drawn with MuJoCo's own overlay functions. Drawing is bounded by
+legibility and the
 graphics card: with 64 shapes per copy, 128 copies are 8,192 shapes per frame,
 which a laptop draws smoothly; a thousand overlapping ghosts would be a grey
 blob anyway.
@@ -38,9 +39,9 @@ blob anyway.
 | `recording.py` | The file format: `Recording`, `write_recording`, `read_recording` | NumPy |
 | `selection.py` | `selected_ranks` and `level_of_ranks`, shared with producers; `world_counts` and `choose_worlds(recording, count, world_ids=None)`: which of a file's worlds to draw, and in what rank order | NumPy |
 | `scene.py` | `ComposedScene`: the composite model, the joint mapping, colours, markers, `set_frame(frame_index)`, and `fits`/`show` to reuse the composite for another file of the same model | MuJoCo, NumPy |
-| `playback.py` | `Playback`: the playlist, current frame, play/pause, speed presets, stepping, the events just passed, and the playback line of the overlay; pure logic, no graphics | none |
+| `playback.py` | `Playback`: the playlist, current frame, play/pause, speed presets, stepping and seeking, the events just passed, and the playback line of the overlay; pure logic, no graphics | NumPy, through `recording` |
 | `render.py` | `SceneRenderer`: the MuJoCo render context, camera, graphics settings, drawing of the scene, markers, overlay, timeline, and reading pixels back; works in a window or offscreen | MuJoCo, NumPy |
-| `settings.py` | `Settings` and `Graphics`: the Quality and Performance presets, and keeping the settings in the user's settings folder | the standard library |
+| `settings.py` | `Settings` and `Graphics`: the Quality and Performance presets, the ghosts' strengths, and keeping the settings in the user's settings folder | NumPy, through `selection` |
 | `ui.py` | `Panel`: the side panel's rows, their layout, drawing, and clicks | MuJoCo |
 | `viewer.py` | The application: the window, the empty world, opening files, the panel's actions, the keys and the mouse, the main loop that draws only on change | GLFW, MuJoCo, NumPy; imported only by the `view` command |
 | `video.py` | Offscreen rendering of a playlist to an MP4 | `imageio`, `imageio-ffmpeg`, MuJoCo, NumPy; imported only by the `render` command, so a missing `video` extra fails before any work |
@@ -70,8 +71,12 @@ its world's `qpos` exactly.
    assets=...)`; the assets are the `asset/<name>` arrays as bytes. Every
    unnamed body and joint is given a name (`body7`, `joint3`), the same one on
    every parse, because joints are matched by name below and attaching leaves
-   unnamed parts unnamed. Compiling this spec gives the original model, whose
-   `qpos` layout the recording uses; its `nq` must match the file's.
+   unnamed parts unnamed. The compiler's `fusestatic` is turned off: it would
+   merge bodies without joints into their parents inside the spec while
+   compiling, so that bodies the model names would vanish from the copies
+   (the third review found that crash). Compiling a parse of its own gives
+   the original model, whose `qpos` layout the recording uses; its `nq` must
+   match the file's.
 2. The same spec becomes the static scene: delete every actuator, sensor,
    tendon, equality constraint, contact pair and exclusion, keyframe, tuple,
    skin, and flex (`spec.delete(item)`), then every replicated body
@@ -119,23 +124,29 @@ for 128 in the development container. MuJoCo's compiler grows with the square
 of the number of bodies (the same copies written out as plain XML compile 6
 to 8 times slower still), so 128 worlds take several seconds to open; the
 composed-scene cache of stage R6 removes the wait the second time. Spatial
-tendons are not drawn, since they go with the other unused parts.
+tendons, skins, and flexible bodies (cloth) are not drawn, since they go with
+the other unused parts; a model compiled with `discardvisual` shows only its
+collision shapes, as MuJoCo itself would.
 
 Colours: every geom of a ghost copy gets the ghost grey `(0.55, 0.55, 0.55)`
 and `geom_matid = -1`, so that a material or texture cannot override the grey.
-Its alpha is 0.15 times the shape's own drawn alpha, so that a shape the model
-hides stays hidden; the drawn alpha is the material's when the geom's colour
+Its alpha is the ghosts' alpha times the shape's own drawn alpha, so that a
+shape the model hides stays hidden; the drawn alpha is the material's when the geom's colour
 is MuJoCo's default grey `(0.5, 0.5, 0.5, 1)`, and the geom's otherwise, which
 is the rule MuJoCo draws by. The highlighted copy keeps the colours the
 composite was compiled with, which are the original model's; they are read
 from the composite itself, because every copy has its own prefixed materials,
 whose ids differ from the original's. Both arrays are plain fields of
 `MjModel` and can be changed at any time, so the highlight can move from one
-world to another while playing. Hiding the ghosts sets their alpha to 0, and
-MuJoCo leaves shapes with alpha 0 out of the scene altogether. MuJoCo draws
-transparent shapes after opaque ones, so the highlighted world shows through
-the ghosts. The alpha value is a starting point to tune by eye; it may need to
-drop as more worlds are drawn.
+world to another while playing. The ghosts' alpha comes from their strength,
+a setting of the panel: faint 0.07, normal 0.15, strong 0.35 with up to 8
+worlds drawn, falling with the square root of the number of worlds beyond
+(normal is 0.075 with 32). MuJoCo draws transparent shapes after opaque ones,
+blended over them, and a run's worlds start on top of one another, so with a
+fixed alpha 15 ghosts in front of the highlighted world washed it out; the
+interaction review found that, and the fading keeps it readable. Hidden
+ghosts have alpha 0, and MuJoCo leaves such shapes out of the scene
+altogether.
 
 Markers: after `mjv_updateScene`, one sphere per drawn world and marker is
 added with `mjv_initGeom` into the scene's spare slots, at the marker's
@@ -164,9 +175,12 @@ values, so that every band holds a world to draw. `--worlds N` sets the count
 (16 by default) and `--ids 3,7,9` draws exactly those `world_ids` instead; the
 two exclude each other, and an `--ids` list that matches no world of a file is
 an error naming the file; while `--ids` holds, the panel names the worlds as
-chosen by id instead of offering the count. The highlighted world starts as rank 0; a key moves
-the highlight through the drawn worlds in rank order, so each ghost can be
-inspected in colour.
+chosen by id instead of offering the count. The highlighted world starts as
+rank 0; `B` moves the highlight through the drawn worlds in rank order, and a
+double-click on a world highlights it, so each ghost can be inspected in
+colour. The rank shown is the producer's, among all its worlds, when the file
+gives one (`rank` and `ranked_worlds`), and the rank within the file
+otherwise.
 
 ## Playback and keys
 
@@ -191,8 +205,10 @@ drawn worlds match the current scene's (`ComposedScene.fits`), as for
 consecutive windows of one run, the same composite shows it (`show`), at once
 and with the camera kept; otherwise a new scene is composed, after which the
 viewer calls `Playback.sync(now)` so that the time spent composing is not
-played. The highlight stays on the same world, by `world_ids`, when the new
-file draws it, and returns to rank 0 otherwise.
+played. A world the user highlighted stays highlighted, by `world_ids`, when
+the new file draws it; otherwise, and whenever the user has not picked one,
+the new file's best world is. Clicking or dragging on the timeline pauses at
+that frame (`Playback.seek`).
 
 | Key | Action |
 | --- | --- |
@@ -204,20 +220,31 @@ file draws it, and returns to rank 0 otherwise.
 | R | Restart the file |
 | N, P | Next or previous file in the playlist |
 | B, Shift+B | Highlight the next or previous drawn world, by rank |
-| G | Show or hide the ghosts |
+| G | Hide the ghosts, or show them again at their strength |
 | M | Show or hide the markers |
-| H | Show or hide the overlay (remembered) |
-| I | Show or hide the setup information |
+| V | Reset the view: frame every drawn world from a raised angle |
+| T | Look straight down, from above |
 | C | Centre the camera on the highlighted world |
 | F | Follow the highlighted world on or off |
+| H | Show or hide the overlay (remembered) |
+| I | Show or hide the setup information |
 | O | Open recordings with the system's file picker |
+| F1, ? | Show or hide this list of keys, at the top right |
 | Tab | Show or hide the side panel (remembered) |
 | Esc, Q | Quit |
 
-Right and Left repeat while held. Mouse, as in MuJoCo's `simulate`: left drag
-rotates, right drag pans, middle drag or the wheel zooms, and Shift turns
-rotating and panning to the horizontal plane, through `mujoco.mjv_moveCamera`
-with the standard action mapping (in MuJoCo 3.12 it takes no scene argument).
+Right and Left repeat while held. Letter keys are read as the characters they
+type (GLFW's character callback), so that they follow the keyboard's layout:
+on a French keyboard Q is the key marked Q, not the one where an American Q
+sits. Mouse: left drag rotates, right drag pans, middle drag zooms, through
+`mujoco.mjv_moveCamera` (in MuJoCo 3.12 it takes no scene argument); Shift
+with the left drag turns around the vertical only, and Shift with the right
+drag pans in the horizontal plane. The wheel zooms in when turned away from
+the user, as in most programs (MuJoCo's own viewer does the opposite). The
+camera stays at least 2° above the horizon, so it cannot slip under the
+floor, and panning switches following off, since following would undo it.
+A double-click on a world highlights it (`mjv_select` names the shape under
+the cursor, hence its copy); the timeline takes clicks and drags.
 
 ## Overlay
 
@@ -232,19 +259,33 @@ recording's text are replaced: `·` by `|`, accents dropped, the rest by `?`.
 
 - Top left: the title; then the `frame_info` values at the current frame on
   one line (`updates 15 | steps per world 3,840`); then the highlighted world
-  (`world 512 | rank 1 of 1,024 | summed reward +1.23 | level 1 of 4`); then
-  the drawn set (`32 of 1,024 worlds drawn | 31 ghosts`, with `(hidden)` while
-  `G` hides them).
+  (`world 512 | rank 37 of 1,024 | summed reward +1.23 | level 1 of 4`, the
+  level's "of 4" only when the file gives `level_count`); then the drawn set
+  (`32 of 1,024 worlds drawn | 31 ghosts`, with `(hidden)` while `G` hides
+  them). A line too long for the window is cut with `...`.
 - Bottom left: the playback line (`file 2 of 3 | frame 124 / 256 | 2.46 s |
   0.3 s per frame (0.067x real time) | paused`); the file shows only for a
   playlist, frames count from 1, and the time is the frame's since the start.
 - Bottom: a thin timeline bar across the window, filled to the current frame,
-  with an orange tick per event and its label in a box above it, and small
-  blue ticks where the highlighted world's episodes start.
+  with an orange tick per event and its label in a box above it (a label that
+  would cover the one before it is left out), and small blue ticks where the
+  highlighted world's episodes start. A click or drag on it, or just above it,
+  goes to that frame.
 - Event flash: when playback passes an event, its label is drawn large at the
   bottom centre, above the playback line, for one second.
-- Setup panel (`I`): the `setup_json` object flattened to `key = value` lines,
-  nested keys joined by dots, drawn top right, as many as fit.
+- Setup (`I`): the `setup_json` object as `key = value` lines, a nested
+  object's values under a heading of its dotted path, indented, at the top
+  right, right of the top-left lines and above the playback line. MuJoCo's
+  `mjr_overlay` keeps only 500 characters, which cut Centipede's 2,250 off
+  mid-word, so each line is drawn on its own, in as many columns as it takes;
+  the columns share the free width, a line too long for its column is cut,
+  and lines beyond the columns that fit are counted on the last line. The
+  list of keys (`F1`) is drawn the same way, in the same place.
+- Bottom right, above the playback line: the frame-rate readout, when it is
+  on.
+
+The setup, the list of keys, the readout, and messages show when the overlay
+is hidden too.
 
 The overlay is drawn in the same way into the window and into the offscreen
 buffer, so the video carries it unless `--no-hud` is given.
@@ -253,7 +294,13 @@ buffer, so the video carries it unless `--no-hud` is given.
 
 A free camera (`mjCAMERA_FREE`) starts looking at the centre of the drawn
 worlds and their markers at frame 0, from a raised angle, at a distance of 0.8
-times their spread plus 1.2 times the composite model's `stat.extent`. A
+times their spread plus 1.2 times the composite model's `stat.extent`; `V`,
+or the panel's Reset button, frames them so again, and `T` looks straight
+down. Framing leaves out a world whose positions are not finite or lie more
+than 1,000 extents from the others' median, as a diverged simulation leaves
+them, and neither centring nor following moves the camera to a point that is
+not finite: one such world could otherwise take the camera with it and blank
+the picture (the third review found that). A
 world's centre is the centre of mass of all its replicated root bodies,
 weighted by their masses, from the `subtree_com` that `mj_comPos` computes
 (`mj_kinematics` leaves it at zero, so `set_frame` runs both). `C` recentres
@@ -272,7 +319,11 @@ and `MjvOption`, and needs a current OpenGL context before it is made. The
 viewer creates a visible GLFW window and renders to its framebuffer at the
 framebuffer size, not the window size, so high-DPI screens render at full
 resolution, with a font scale taken from the window's content scale (100 at
-normal density, 200 at double).
+normal density, 150 at 125 % and 150 %, 200 at double). Without a size from
+the command line, the window takes 85 % of the screen's free area, in its
+middle, so that the panel has room at the larger font scales. The scene is
+drawn right of the panel, so that the camera's centre is the visible
+centre; the panel is opaque.
 Offscreen drawing, for the video and the tests, uses `mujoco.GLContext`,
 MuJoCo's own helper, rather than a hand-made hidden GLFW window: by default it
 is exactly that hidden window, and on a Linux machine without a display it
@@ -285,11 +336,13 @@ which the renderer reports as a clear error. This is the same structure as
 MuJoCo's `basic` sample and the Python `mujoco.Renderer`; the tool keeps its
 own loop because the passive viewer offers no text overlay.
 
-Each frame, `mjv_updateScene` lists the shapes to draw; the ghosts' shapes are
-then marked as decoration (`mjCAT_DECOR`), because MuJoCo draws translucent
-shapes with full, dark shadows, which would cover the floor in grey, and casts
-none from decoration; the markers are added; `mjr_render` draws, and the
-overlay goes on top. The highlighted world keeps its shadow. Sites are not
+Each frame, `mjv_updateScene` lists the shapes to draw; while shadows are on,
+the ghosts' and the floors' shapes are then marked as decoration
+(`mjCAT_DECOR`), which casts no shadow but still receives them: MuJoCo draws
+translucent shapes with full, dark shadows, which would cover the floor in
+grey, and a plane can only shade itself, which speckled the floor with black
+dashes; the markers are added; `mjr_render` draws, and the overlay goes on
+top. The highlighted world keeps its shadow. Sites are not
 drawn at all: they mark points for sensors and attachments, and every ghost
 would carry opaque copies of them. For 32 copies of the chain (1,633 shapes),
 listing the shapes takes 0.05 ms, marking the ghosts 1 ms in Python, and
@@ -310,8 +363,8 @@ overlapping translucent ghosts cost every pixel they cover.
 
 | Switch | Quality | Performance | How it is done |
 | --- | --- | --- | --- |
-| Shadows | on | off | MuJoCo's `mjRND_SHADOW` flag; a scene whose lights cast no shadow gets one from its first light (Centipede's light casts none) |
-| Reflections | on | off | `mjRND_REFLECTION`; a floor (a plane with a material) that does not reflect reflects 0.15 |
+| Shadows | on | off | MuJoCo's `mjRND_SHADOW` flag; a scene whose lights cast no shadow gets one from its first light (Centipede's light casts none), over at least 4 model extents (`vis.map.shadowclip`) |
+| Reflections | on | off | `mjRND_REFLECTION`; a floor (a plane with a material) that does not reflect reflects 0.08 |
 | Anti-aliasing | on | off | 4 samples in MuJoCo's offscreen buffer (`vis.quality.offsamples`) |
 | Fine shapes | on | off | `vis.quality.numslices` and `numstacks`: 28 and 16, or 12 and 6 |
 | Resolution | 100 % | 75 % | the share of the window's width and height drawn, then scaled up |
@@ -320,6 +373,16 @@ Changing a switch after a preset makes the mode "custom". The anti-aliasing
 and the shapes are part of the `MjrContext`, which is made again when they
 change; the others apply at the next frame. The ghosts never cast shadows
 (they are marked as decoration), so a shadow belongs to the highlighted world.
+
+The visual review found Quality looking worse than Performance on Centipede's
+small model: black dashes on the floor and speckles on the robot's back,
+where shadows fell on the shapes casting them, and the floor's reflection
+showing the legs as pale sticks, like extra ghosts, and the target's beacon
+as a second pole under the floor. Floors no longer cast shadows; MuJoCo's
+default shadow area of one model extent (`shadowclip = 1`) both left worlds
+away from the first without shadows and gave too little depth margin at this
+scale, and 3 extents and more cleared the robot's speckles, so the area is
+widened to 4; the floor reflects 0.08 instead of 0.15.
 
 In the window, the scene is always drawn into MuJoCo's offscreen buffer at
 the chosen share of the window's size and copied into the window with
@@ -348,9 +411,12 @@ Centipede's colours, with the line "Open recordings (O), or drop .npz files
 here". Recordings come from the command line, from the panel's Open button,
 which shows the system's file picker, or from files dropped onto the window
 (GLFW's drop callback). The picker is tkinter's, run in a process of its own,
-which prints the chosen paths: that keeps tkinter's event loop apart from
-GLFW's, and the window keeps drawing while the picker is open; where tkinter
-is missing, a message says so and points to dropping. A file that cannot be
+which prints the chosen paths in UTF-8 into a temporary file: that keeps
+tkinter's event loop apart from GLFW's, the window keeps drawing while the
+picker is open, and no pipe can fill and hold the picker open, which a few
+dozen paths would do on Windows; where tkinter is missing, a message says so
+and points to dropping. Several files picked or dropped play in the order of
+their names, numbers by value (`cycle_2` before `cycle_10`). A file that cannot be
 read or composed is reported as a message at the top of the window, and the
 window goes on showing what it showed; a later file of a playlist whose model
 fails is left out of the playlist, and playback goes back, paused, to the
@@ -358,14 +424,20 @@ frame shown before.
 
 The side panel, on the left, is drawn with MuJoCo's own overlay functions
 (`mjr_rectangle`, `mjr_label`), so the viewer needs nothing beyond MuJoCo and
-NumPy. Its sections are Playback (the transport buttons, the speed, the
-file), Worlds (how many are shown, the highlighted rank, ghosts, markers,
-following), Graphics (the two presets and the five switches), and Display
-(overlay, setup information, frame rate, the cache). The viewer describes the
+NumPy. Its sections are Playback (the transport buttons, the time per frame,
+the file), Worlds (how many are shown, the highlighted rank, the ghosts'
+strength), View (Reset, Top, Follow), Graphics (the two presets, the four
+switches, the resolution), and Options (overlay, markers, setup, keys, frame
+rate, the cache). Switches are buttons lit while on, two or three to a row,
+so that the panel fits a laptop's window at 150 % scaling; when it still
+does not fit, a scroll bar along its edge says so, and the wheel scrolls it.
+The time per frame is the stepper's value, so that its minus makes playback
+faster and its value smaller, as the eye expects. The viewer describes the
 panel as plain rows each frame; `ui.Panel` lays them out, draws them, and
 names the action under a click, which the viewer then carries out, the same
-action a key would. Tab hides the panel and leaves a small Panel button; the
-wheel scrolls the panel when the cursor is over it. A click's position is the
+action a key would. A button acts when the mouse is released over it, so that
+a drag that begins on the panel, or slips off a button, does nothing. Tab
+hides the panel and leaves a small Panel button. A click's position is the
 one the cursor callback recorded in event order: asking GLFW for the cursor
 at the click would give where it is after the events still queued, so on a
 slow card a quick second click would land the first one too; driving the
@@ -373,29 +445,37 @@ window found that. For the same reason the panel is laid out again right
 after each action, so that a click queued behind Tab does not meet the
 hidden panel.
 
-The settings (the graphics, the number of worlds, the cache, the frame-rate
-readout, the panel, and the overlay) are saved as JSON in the user's settings
-folder (`%APPDATA%\MujocoReplay` on Windows, `~/.config/mujoco-replay` on
-Linux) whenever they change, and read at the next start; a missing or
+The settings (the graphics, the number of worlds, the ghosts' strength, the
+cache, the frame-rate readout, the panel, and the overlay) are saved as JSON
+in the user's settings folder (`%APPDATA%\MujocoReplay` on Windows,
+`~/.config/mujoco-replay` on Linux) whenever they change, and read at the
+next start; a missing or
 damaged file, or a wrong value, gives the default for that value, and a
 byte-order mark, which some Windows editors write, is accepted. The first
 start is in Performance mode with 16 worlds.
 
-Composed scenes are cached in the user's cache folder (`%LOCALAPPDATA%` or
-`~/.cache`) as compiled models in MuJoCo's binary format (`mj_saveModel`,
-`MjModel.from_binary_path`), named by a hash of the model, its assets, the
-replicated bodies, the number of copies, the MuJoCo version, and a version of
-the composition itself. A run opened again, or a count changed back, then
+Composed scenes are cached in the user's cache folder
+(`%LOCALAPPDATA%\MujocoReplay\cache` on Windows, `~/.cache/mujoco-replay` on
+Linux) as compiled models in MuJoCo's binary format, named by a hash of the
+model, its assets, the replicated bodies, the number of copies, the MuJoCo
+version, and a version of the composition itself, each part hashed with its
+length so that two different sets of parts never run together. MuJoCo
+writes the model into memory (`mj_saveModel` with a buffer) and reads it from
+memory (`MjModel.from_binary_path` with the bytes as an asset), and Python
+does the file work, because MuJoCo's own file access may not open a path
+with characters outside the system's code page. A run opened again, or a count changed back, then
 skips the compiler: with Centipede's model, 16 copies load in 6 ms instead of
 0.30 s, 32 in 13 ms instead of 0.76 s, and 128 in 55 ms instead of 7.6 s
 (plus about 15 ms to compile the single model, which the joint mapping still
 needs). The files take 5 to 27 MB; the newest 16 are kept, and a damaged one
-is composed again. The panel's switch turns the cache off.
+is composed again (MuJoCo then prints a warning and, as it does for every
+warning, appends it to `MUJOCO_LOG.TXT` in the current folder). The panel's
+switch turns the cache off, and says where the cache is.
 
 ## Video
 
 `mujoco-replay render FILES --out replay.mp4 [--width 1280 --height 720
---fps 30 --speed 0.3 --no-hud]` plays the playlist at `--speed` seconds per
+--fps 30 --speed 0.3 --mode quality --no-hud]` plays the playlist at `--speed` seconds per
 recorded frame and writes `fps` video frames per second, so each recorded
 frame repeats for `speed × fps` video frames (9 at the defaults). Frames go to
 `imageio.get_writer` with the `ffmpeg` plugin from `imageio-ffmpeg`, which
@@ -421,7 +501,8 @@ files at 640 × 360 and 0.1 s per frame took 2 min 18 s to export.
 mujoco-replay [view] [FILE ...] [--worlds N | --ids IDS] [--mode quality|performance]
               [--speed SECONDS] [--no-hud] [--width W] [--height H]
 mujoco-replay render FILE [FILE ...] --out PATH [--fps 30] [--speed SECONDS]
-              [--width 1280] [--height 720] [--worlds N | --ids IDS] [--no-hud]
+              [--width 1280] [--height 720] [--worlds N | --ids IDS]
+              [--mode quality|performance] [--no-hud]
 ```
 
 `view` is the default subcommand, and the files are optional: without them
@@ -430,24 +511,28 @@ command. The saved settings supply what the command line leaves out; `--mode`
 and `--worlds` given to `view` are remembered, as the panel's changes are, and
 `--no-hud` hides the overlay for this run only: it is not saved, and a video
 carries the overlay unless `render` is given `--no-hud`, whatever the
-viewer's switch. `render` always draws with the
-Quality graphics. Both subcommands draw at 1280 × 720 unless told otherwise, read and
-check every file before opening anything (the checks that need a later file's
-model come when playback reaches it), and exit with status 1 and a one-line
-message for a bad file or a missing OpenGL; `render` names a missing `video`
-extra the same way, refuses an output folder that does not exist before any
-work, and reports its progress on the error stream. Options may come before
-or after the files, and sizes are at least 16 pixels.
+viewer's switch. `render` draws with the Quality graphics unless given
+`--mode performance`, and at 1280 × 720 unless told otherwise; the window
+takes most of the screen. Both subcommands expand wildcards in file names
+themselves (`recordings\*.npz`), since Windows' shells pass them on as they
+are, read and check every file before opening anything (the checks that need
+a later file's model come when playback reaches it), and exit with status 1
+and a one-line message for a bad file, a missing OpenGL, or a video file that
+cannot be written; `render` names a missing `video` extra the same way,
+refuses an output folder that does not exist before any work, and reports
+its progress on the error stream. Options may come before or after the
+files, and sizes are at least 16 pixels.
 
 ## Dependencies
 
-`mujoco==3.12.0` (the version the composition was verified with; the `glfw`
-package comes with it), `numpy`. Optional `video`: `imageio`,
-`imageio-ffmpeg`. Development: `pytest`, `ruff`. Python 3.11 or newer.
+`mujoco==3.12.0` (the version the composition was verified with), `numpy`,
+and `glfw`, which MuJoCo also brings but the window imports directly.
+Optional `video`: `imageio`, `imageio-ffmpeg`. Development: `pytest`, `ruff`.
+Python 3.11 to 3.14: MuJoCo 3.12.0 has no wheels for newer versions.
 
 ## Verification without a display
 
-An assistant cannot use the window as a person does. Rendering is verified by
+An assistant cannot see the user's screen. Rendering is verified by
 writing a few offscreen frames of a recording to PNG files in the scratchpad
 and inspecting them: ghosts grey and translucent, the best world coloured and
 on top, markers present, overlay text in the corners, the timeline filled to
@@ -472,3 +557,13 @@ which found the click-position fault described above. Dropping files cannot
 be faked that way, so a test calls the drop callback directly; the file
 picker could not be shown at all, since the container's Python has no
 tkinter.
+
+In stage R7 five reviewers, each working on its own, went through the tool by
+running it: one composed some thirty unusual models and fed the reader
+seventy damaged or hostile files; one wrote recordings with Centipede's own
+recorder code and opened them; one drove the window through every control
+at sizes from 480 × 320 to 1600 × 1000; one timed each step of a frame; and
+one checked the documents, a fresh install, and the Windows code paths by
+reading. Screenshots of the window and offscreen frames in both modes made
+the visual review. Their findings and the fixes are listed in `plan.md`
+under R7, and the reasons for each change are in the sections above.
