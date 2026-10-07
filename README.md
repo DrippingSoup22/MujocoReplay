@@ -120,13 +120,25 @@ and Q or Esc asks before quitting; [`docs/design.md`](docs/design.md) describes 
 switch.
 
 The install also makes `MujocoReplay`, a program that opens the same window
-without a console window: on Windows, `MujocoReplay.exe` in the
-environment's `Scripts` folder (`$HOME\.venvs\Centipede\Scripts` for the
-shared environment above). In File Explorer, right-click it and choose Pin
-to Start, or Send to, Desktop (create shortcut), which Windows 11 lists
-under Show more options. It opens the empty world, or the files dropped onto
-it or onto its shortcut, with the same remembered settings. It runs this
-folder's code, so a pull needs no new install; only a change to
-`pyproject.toml` needs the `pip install` again, with the window closed. When
-it cannot start, a message box says why; if nothing appears at all, run
-`mujoco-replay` in the terminal, which prints the reason.
+without a console window. pip puts it in the environment, not in this
+folder: on Windows, `MujocoReplay.exe` in the environment's `Scripts` folder
+(`$HOME\.venvs\Centipede\Scripts` for the shared environment above). An
+environment installed before the program existed needs the `pip install`
+above once more, with the window closed. Then, with the environment active,
+`MujocoReplay` starts it, and this puts a shortcut to it on the desktop:
+
+```powershell
+$desktop = [Environment]::GetFolderPath("Desktop")
+$link = (New-Object -ComObject WScript.Shell).CreateShortcut("$desktop\MujocoReplay.lnk")
+$link.TargetPath = (Get-Command MujocoReplay).Path
+$link.WorkingDirectory = Split-Path $link.TargetPath
+$link.Save()
+```
+
+Right-click the shortcut to pin it to Start or the taskbar. The program
+opens the empty world, or the files dropped onto it or onto its shortcut,
+with the same remembered settings. It runs this folder's code, so a pull
+needs no new install; only a change to `pyproject.toml` needs the
+`pip install` again. When it cannot start, a message box says why; if
+nothing appears at all, run `mujoco-replay` in the terminal, which prints
+the reason.
