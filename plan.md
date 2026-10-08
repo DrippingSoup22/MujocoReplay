@@ -395,7 +395,11 @@ model per world and adding its shapes to the scene (`mjv_addGeoms`) instead
 of composing took 11 ms a frame for 1,024 worlds, with no wait to open. The
 user then chose to record every world of a run, with a setting for how many
 worlds a recording keeps: a change to Centipede, handed to its sessions in a
-note outside this repository. Drawing stays at up to 128 worlds at once.
+note outside this repository and made there the same day, after its commit
+`1b42442`. Its `[run] record_worlds` is `"all"` by default, or a number N
+of worlds evenly spaced over all ranks, best and worst included
+(`selected_ranks(W, 1, N)`, which gives exactly N, checked here for 64 to
+1,024 worlds). Drawing stays at up to 128 worlds at once.
 
 ## Status
 

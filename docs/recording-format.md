@@ -142,13 +142,13 @@ from each world's rank among all its worlds.
 
 Centipede records training episodes and evaluation episodes; its
 `docs/configuration.md` describes the settings. Its files follow these
-conventions, which are not part of the format (as of Centipede's commit
-`9d14982`, 2026-10-08):
+conventions, which are not part of the format (as of Centipede's change
+after its commit `1b42442`, 2026-10-08):
 
 | Item | Training recording | Evaluation |
 | --- | --- | --- |
 | File | `runs/<run>/recordings/cycles_AAAA-BBBB.npz`: the windows collected in cycles `AAAA` to `BBBB`, one episode length: every world's episode from its first step, or several for the worlds that arrived early; a session's last file can be shorter | `runs/<run>/evaluations/<stem>_<actor>_seed<seed>.npz`: every world's first episode, and what followed it until the last world's first episode ended |
-| Worlds | Selected by `selected_ranks` from all worlds, ranked by their summed reward over the recording, `record_levels × record_per_level` of them, 4 × 8 = 32 by default; or as many first worlds, when continuity across recordings is wanted. Each file gives the run-wide `rank`, `ranked_worlds`, `level`, and `level_count`. The user chose on 2026-10-08 to record every world, a change handed to Centipede | All, in the order of their first episode's summed reward |
+| Worlds | Every world by default (`record_worlds = "all"`), ranked by their summed reward over the recording; or `record_worlds` = N, which keeps N worlds evenly spaced over all ranks, best and worst included (`selected_ranks(W, 1, N)`), or the first N worlds with `record_selection = "first"`. `record_levels` (4) only labels the levels. Each file gives the run-wide `rank`, `ranked_worlds`, `level`, and `level_count`. Earlier runs hold 32 worlds, 4 levels of 8 | All, in the order of their first episode's summed reward |
 | `score` | Sum of every segment's rewards over the recording (`score_name = "summed reward"`) | The first episode's summed reward |
 | Markers | `target`: the head's target, drawn on the ground with the arrival radius | The same |
 | `frame_info` | `updates` (done before the frame) and `steps per world` (collected so far) | none |
