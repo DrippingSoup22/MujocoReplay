@@ -1,10 +1,11 @@
 # Development plan
 
-This plan builds MujocoReplay in nine stages; the user asked for the sixth on
+This plan builds MujocoReplay in ten stages; the user asked for the sixth on
 2026-10-07, once the first five were built, for the seventh, a full review,
 once the sixth was, for the eighth, a program to start it from, once the
 seventh was, and for the ninth, any world on its own and new defaults, on
-2026-10-08. It is paired with Stage 7 of the
+2026-10-08; the tenth, rings and radii that change, Centipede asked for on
+the user's behalf the same day. It is paired with Stage 7 of the
 sibling `Centipede` project (`../Centipede/plan.md`), which records the files
 this tool replays. The format is fixed in
 [docs/recording-format.md](docs/recording-format.md) and the design in
@@ -401,6 +402,38 @@ of worlds evenly spaced over all ranks, best and worst included
 (`selected_ranks(W, 1, N)`, which gives exactly N, checked here for 64 to
 1,024 worlds). Drawing stays at up to 128 worlds at once.
 
+### R10 — Rings and radii that change
+
+Asked on 2026-10-08 by a Centipede session, for the user, after R9:
+Centipede's new task ends an episode when the head's tip leaves a range
+circle around the target, 2.5 times the head's distance at the episode's
+start, and the user wants to see that circle in replays. Its radius differs
+between worlds and changes at each new episode, which the format could not
+say: a marker had one radius and was always a sphere.
+
+**Builds:** in the format, `marker_radius` of shape `(T, K, M)` besides
+`(M,)`, and an optional `marker_shapes`, each `"sphere"` or `"ring"`,
+joining the marker group; format version 2 for a file that uses either,
+version 1 otherwise, both read; the viewer drawing a ring flat around its
+marker, for the highlighted world, at the current frame's radius, and
+framing it.
+
+**Done when:** tests show a file with a ring and a changing radius written
+as version 2 and read back, other files still written as version 1,
+inconsistent radii and shapes refused by key when read and when made, a ring
+drawn flat at the radius of the frame for the highlighted world alone, and
+framing taking it in; offscreen frames and the window show the ring.
+
+**Result (2026-10-08):** built; the user's check pending. 106 tests pass (28
+draw and skip without OpenGL). Frames of a 32-world stand-in recording with
+a `target` sphere and a `range` ring, whose radius grew from 38 to 92 mm
+where an episode restarted, showed the ring flat around the target in both
+modes, smooth in Quality; in the window, 2 pixels read thin, so rings are 3
+pixels wide at font scale 100. Copies of MujocoReplay from before this stage
+refuse version-2 files ("format_version must be 1"), so every copy that
+opens Centipede's new files, and the one on the GPU desktop that writes
+them, needs a pull first.
+
 ## Status
 
 | Stage | Status |
@@ -414,3 +447,4 @@ of worlds evenly spaced over all ranks, best and worst included
 | R7 — Full review | Done (2026-10-07); the user's check on the MX330, with Centipede's own recordings, pending |
 | R8 — The program | Built (2026-10-07); the user's check on Windows pending |
 | R9 — Any world on its own, and new defaults | Built (2026-10-08); the user's check pending |
+| R10 — Rings and radii that change | Built (2026-10-08); the user's check pending |

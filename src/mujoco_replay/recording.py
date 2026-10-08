@@ -19,7 +19,9 @@ from typing import Any
 
 import numpy as np
 
-FORMAT_VERSION = 1
+# Version 2 added rings and radii that change per frame; a file that uses
+# neither is written as version 1, which readers before version 2 read too.
+FORMAT_VERSIONS = (1, 2)
 REQUIRED_KEYS = ("format_version", "model_xml", "frame_seconds", "qpos")
 ASSET_PREFIX = "asset/"
 # What each key holds: its kind of values and its number of dimensions.
@@ -39,7 +41,8 @@ KEYS = {
     "episode_start": ("truth", 2),
     "marker_names": ("text", 1),
     "marker_positions": ("number", 4),
-    "marker_radius": ("number", 1),
+    "marker_radius": ("number", None),  # (M,) or (T, K, M): checked with the markers
+    "marker_shapes": ("text", 1),
     "frame_info_names": ("text", 1),
     "frame_info": ("number", 2),
     "event_frames": ("whole", 1),
@@ -51,6 +54,9 @@ KEYS = {
 DTYPE_KINDS = {"whole": "iu", "number": "iuf", "truth": "biu", "text": "U"}
 # Optional keys that come in groups: a group is written and read as a whole.
 MARKER_KEYS = ("marker_names", "marker_positions", "marker_radius")
+# How a marker is drawn: the first unless marker_shapes, which may join the
+# marker group, says otherwise.
+MARKER_SHAPES = ("sphere", "ring")
 INFO_KEYS = ("frame_info_names", "frame_info")
 EVENT_KEYS = ("event_frames", "event_labels")
 RANK_KEYS = ("rank", "ranked_worlds")
@@ -69,9 +75,10 @@ class Recording:
 
     Only ``model_xml``, ``frame_seconds``, and ``qpos`` are required. A ``None``
     for ``score``, ``world_ids``, or ``episode_start`` becomes the default on
-    creation; ``level``, ``level_count``, and the marker, info, event, and
-    rank groups stay ``None`` when absent. Arrays are cast to the format's
-    types.
+    creation, and so does one for ``marker_shapes`` when markers are given:
+    every marker a sphere. ``level``, ``level_count``, and the marker, info,
+    event, and rank groups stay ``None`` when absent. Arrays are cast to the
+    format's types.
     """
 
     model_xml: str
@@ -86,7 +93,7 @@ class Recording:
     episode_start: np.ndarray | None = None  # (T, K) bool
     marker_names: tuple[str, ...] | None = None
     marker_positions: np.ndarray | None = None  # (T, K, M, 3) float32
-    marker_radius: np.ndarray | None = None  # (M,) float32
+    marker_radius: np.ndarray | None = None  # (M,) or (T, K, M) float32
     frame_info_names: tuple[str, ...] | None = None
     frame_info: np.ndarray | None = None  # (T, I) float64
     event_frames: np.ndarray | None = None  # (E,) int64
@@ -96,19 +103,22 @@ class Recording:
     level_count: int | None = None
     rank: np.ndarray | None = None  # (K,) int64
     ranked_worlds: int | None = None
+    marker_shapes: tuple[str, ...] | None = None  # (M,), each of MARKER_SHAPES
 
     def __post_init__(self) -> None:
         """Cast the arrays and fill the defaults of the per-world fields.
 
-        A group given in part, or a level count or ranks that break the
-        format's rules, raises ``ValueError``, so that the writer never writes
-        a file the reader would refuse.
+        A group given in part, or a level count, ranks, or marker radii and
+        shapes that break the format's rules, raise ``ValueError``, so that
+        the writer never writes a file the reader would refuse.
         """
         for group in (MARKER_KEYS, INFO_KEYS, EVENT_KEYS, RANK_KEYS):
             given = [name for name in group if getattr(self, name) is not None]
             if given and len(given) < len(group):
                 missing = next(name for name in group if name not in given)
                 raise ValueError(f"{missing} is missing while {given[0]} is given")
+        if self.marker_shapes is not None and self.marker_names is None:
+            raise ValueError("marker_names is missing while marker_shapes is given")
         set_field = object.__setattr__
         set_field(self, "frame_seconds", float(self.frame_seconds))
         set_field(self, "qpos", np.asarray(self.qpos, dtype=np.float32))
@@ -134,6 +144,7 @@ class Recording:
         for name in (
             "replicated_bodies",
             "marker_names",
+            "marker_shapes",
             "frame_info_names",
             "event_labels",
         ):
@@ -149,6 +160,13 @@ class Recording:
         problem = _ranking_problem(
             worlds, self.level, self.level_count, self.rank, self.ranked_worlds
         )
+        if self.marker_names is not None:
+            markers = len(self.marker_names)
+            if self.marker_shapes is None:
+                set_field(self, "marker_shapes", (MARKER_SHAPES[0],) * markers)
+            problem = problem or _marker_problem(
+                frames, worlds, markers, self.marker_radius, self.marker_shapes
+            )
         if problem is not None:
             raise ValueError(" ".join(problem))
 
@@ -169,10 +187,11 @@ def write_recording(path: Path | str, recording: Recording) -> None:
     """Save a recording as an ``.npz`` file, uncompressed.
 
     The file is written under another name first and then renamed, so that a
-    reader never finds it half written.
+    reader never finds it half written. Its format version is the oldest that
+    holds it: 2 for a ring or a radius that changes per frame, 1 otherwise.
     """
     arrays: dict[str, Any] = {
-        "format_version": np.int64(FORMAT_VERSION),
+        "format_version": np.int64(FORMAT_VERSIONS[0]),
         "model_xml": np.array(recording.model_xml),
         "frame_seconds": np.float64(recording.frame_seconds),
         "qpos": recording.qpos,
@@ -198,6 +217,10 @@ def write_recording(path: Path | str, recording: Recording) -> None:
         arrays["marker_names"] = _strings(recording.marker_names)
         arrays["marker_positions"] = recording.marker_positions
         arrays["marker_radius"] = recording.marker_radius
+        if set(recording.marker_shapes) - {MARKER_SHAPES[0]}:
+            arrays["marker_shapes"] = _strings(recording.marker_shapes)
+        if "marker_shapes" in arrays or recording.marker_radius.ndim > 1:
+            arrays["format_version"] = np.int64(FORMAT_VERSIONS[1])
     if recording.frame_info_names is not None:
         arrays["frame_info_names"] = _strings(recording.frame_info_names)
         arrays["frame_info"] = recording.frame_info
@@ -244,11 +267,14 @@ def _read(path: Path) -> Recording:
             continue
         if arrays[key].dtype.kind not in DTYPE_KINDS[kind]:
             raise fail(key, f"must hold {kind} values, holds {arrays[key].dtype}")
-        if arrays[key].ndim != dimensions:
+        if dimensions is not None and arrays[key].ndim != dimensions:
             shape = {0: "a single value", 1: "a list"}.get(dimensions)
             raise fail(key, f"must be {shape or f'{dimensions}-dimensional'}")
-    if int(arrays["format_version"]) != FORMAT_VERSION:
-        raise fail("format_version", f"must be {FORMAT_VERSION}")
+    version = int(arrays["format_version"])
+    if version not in FORMAT_VERSIONS:
+        raise fail(
+            "format_version", f"is {version}, but this MujocoReplay reads 1 and 2"
+        )
     for group in (MARKER_KEYS, INFO_KEYS, EVENT_KEYS, RANK_KEYS):
         present = [key in arrays for key in group]
         if any(present) and not all(present):
@@ -257,6 +283,8 @@ def _read(path: Path) -> Recording:
             ]
             present_key = group[present.index(True)]
             raise fail(missing[0], f"is missing while {present_key} is present")
+    if "marker_shapes" in arrays and "marker_names" not in arrays:
+        raise fail("marker_names", "is missing while marker_shapes is present")
 
     qpos = arrays["qpos"]
     frames, worlds = qpos.shape[:2]
@@ -276,7 +304,15 @@ def _read(path: Path) -> Recording:
     if "marker_names" in arrays:
         markers = len(arrays["marker_names"])
         expected_shapes["marker_positions"] = (frames, worlds, markers, 3)
-        expected_shapes["marker_radius"] = (markers,)
+        problem = _marker_problem(
+            frames,
+            worlds,
+            markers,
+            arrays["marker_radius"],
+            arrays.get("marker_shapes"),
+        )
+        if problem is not None:
+            raise fail(*problem)
     if "frame_info_names" in arrays:
         expected_shapes["frame_info"] = (frames, len(arrays["frame_info_names"]))
     if "event_frames" in arrays:
@@ -348,7 +384,36 @@ def _read(path: Path) -> Recording:
         level_count=optional("level_count"),
         rank=optional("rank"),
         ranked_worlds=optional("ranked_worlds"),
+        marker_shapes=optional("marker_shapes"),
     )
+
+
+def _marker_problem(
+    frames: int,
+    worlds: int,
+    markers: int,
+    radius: np.ndarray,
+    shapes: Any,
+) -> tuple[str, str] | None:
+    """The first rule the markers' radii or shapes break, as a key and its problem.
+
+    A radius is given per marker, ``(M,)``, or per frame, world, and marker,
+    ``(T, K, M)``; a shape, when given, per marker, each one of MARKER_SHAPES.
+    """
+    allowed = ((markers,), (frames, worlds, markers))
+    if radius.shape not in allowed:
+        return "marker_radius", (
+            f"must have shape {allowed[0]} or {allowed[1]}, has {radius.shape}"
+        )
+    if shapes is not None:
+        if len(shapes) != markers:
+            given = len(shapes)
+            return "marker_shapes", f"must have shape ({markers},), has ({given},)"
+        unknown = [str(shape) for shape in shapes if str(shape) not in MARKER_SHAPES]
+        if unknown:
+            known = " or ".join(repr(shape) for shape in MARKER_SHAPES)
+            return "marker_shapes", f"names {unknown[0]!r}, which is not {known}"
+    return None
 
 
 def _ranking_problem(

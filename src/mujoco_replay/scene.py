@@ -193,6 +193,15 @@ class ComposedScene:
             return None
         return self.recording.marker_positions[self.frame_index, self.worlds]
 
+    def marker_radii(self) -> np.ndarray | None:
+        """Each drawn world's marker radii at the current frame, ``(copies, M)``."""
+        radius = self.recording.marker_radius
+        if radius is None:
+            return None
+        if radius.ndim == 1:  # the same for every frame and world
+            return np.broadcast_to(radius, (len(self.worlds), len(radius)))
+        return radius[self.frame_index, self.worlds]
+
     def world_centre(self, copy: int) -> np.ndarray:
         """Copy ``copy``'s centre of mass at the current frame, over all its roots."""
         roots = self._root_bodies[copy]

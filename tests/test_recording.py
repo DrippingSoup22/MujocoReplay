@@ -16,6 +16,12 @@ MODEL = (
     "<body name='b'><joint/><geom size='1'/></body>"
     "</worldbody></mujoco>"
 )
+# A whole marker group for the broken files below: 3 frames, 2 worlds, 1 marker.
+MARKERS = {
+    "marker_names": np.array(["range"]),
+    "marker_positions": np.zeros((3, 2, 1, 3)),
+    "marker_radius": np.ones(1),
+}
 
 
 def full_recording() -> Recording:
@@ -115,7 +121,7 @@ def test_a_minimal_recording_reads_with_the_defaults(tmp_path):
         ({"level": np.array([0, 1])}, "level"),
         ({"marker_names": np.array(["t"])}, "marker_positions"),
         ({"setup_json": np.array("[1, 2]")}, "setup_json"),
-        ({"format_version": np.int64(2)}, "format_version"),
+        ({"format_version": np.int64(3)}, "format_version"),
         ({"frame_seconds": np.float64(0.0)}, "frame_seconds"),
         ({"qpos": np.zeros((0, 2, 4), dtype=np.float32)}, "qpos"),
         ({"replicated_bodies": np.array(["b", "b"])}, "replicated_bodies"),
@@ -125,6 +131,10 @@ def test_a_minimal_recording_reads_with_the_defaults(tmp_path):
         ({"title": np.array(["two", "lines"])}, "title"),
         ({"level_count": np.int64(4)}, "level_count"),
         ({"rank": np.array([3, 3]), "ranked_worlds": np.int64(8)}, "rank"),
+        ({**MARKERS, "marker_radius": np.ones((3, 2))}, "marker_radius"),
+        ({**MARKERS, "marker_shapes": np.array(["square"])}, "marker_shapes"),
+        ({**MARKERS, "marker_shapes": np.array(["ring", "ring"])}, "marker_shapes"),
+        ({"marker_shapes": np.array(["ring"])}, "marker_names"),
     ],
 )
 def test_a_file_that_breaks_the_format_is_rejected_by_key(tmp_path, change, key):
@@ -199,6 +209,55 @@ def test_the_writer_takes_numpy_values_and_refuses_half_a_group(tmp_path):
     assert not list(tmp_path.glob("*.partial"))
     with pytest.raises(ValueError, match="marker_positions is missing"):
         Recording(MODEL, 0.5, np.zeros((1, 1, 4)), marker_names=("target",))
+
+
+def test_rings_and_radii_that_change_need_version_2_and_come_back(tmp_path):
+    rings, plain = tmp_path / "rings.npz", tmp_path / "plain.npz"
+    radius = np.arange(12, dtype=np.float32).reshape(3, 2, 2)  # per frame and world
+    recording = Recording(
+        MODEL,
+        0.02,
+        np.zeros((3, 2, 4)),
+        marker_names=("target", "range"),
+        marker_positions=np.zeros((3, 2, 2, 3)),
+        marker_radius=radius,
+        marker_shapes=("sphere", "ring"),
+    )
+
+    write_recording(rings, recording)
+    write_recording(plain, full_recording())
+    loaded = read_recording(rings)
+
+    assert loaded.marker_shapes == ("sphere", "ring")
+    assert np.array_equal(loaded.marker_radius, radius)
+    assert read_recording(plain).marker_shapes == ("sphere",)  # the default
+    with np.load(rings) as new, np.load(plain) as old:
+        assert int(new["format_version"]) == 2
+        assert int(old["format_version"]) == 1 and "marker_shapes" not in old.files
+
+
+@pytest.mark.parametrize(
+    "fields, problem",
+    [
+        ({"marker_radius": np.ones((1, 2))}, "marker_radius must have shape"),
+        ({"marker_shapes": ("disc",)}, "marker_shapes names 'disc', which is not"),
+        (
+            {"marker_names": None, "marker_positions": None, "marker_radius": None},
+            "marker_names is missing while marker_shapes is given",
+        ),
+    ],
+)
+def test_marker_radii_or_shapes_the_reader_would_refuse_are_refused_when_made(
+    fields, problem
+):
+    markers = {
+        "marker_names": ("range",),
+        "marker_positions": np.zeros((1, 2, 1, 3)),
+        "marker_radius": [0.1],
+        "marker_shapes": ("ring",),
+    }
+    with pytest.raises(ValueError, match=problem):
+        Recording(MODEL, 0.5, np.zeros((1, 2, 4)), **{**markers, **fields})
 
 
 @pytest.mark.parametrize(

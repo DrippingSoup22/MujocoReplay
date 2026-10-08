@@ -29,6 +29,17 @@ COARSE_SHAPES = (12, 6)
 # A marker's beacon, in shares of the scene's extent: its height, the radius
 # of its pole, and the radius of its head.
 BEACON = (0.5, 0.006, 0.04)
+# A ring marker: the line segments of its circle, their width in pixels at
+# font scale 100, and how far above the marker it is drawn, in shares of the
+# scene's extent, so that the floor under a marker on the ground cannot hide
+# it.
+RING_SEGMENTS = 64
+RING_PIXELS = 3
+RING_LIFT = 0.02
+# Where framing touches a ring: its four points along the horizontal axes.
+RING_EDGES = np.array(
+    [(1.0, 0.0, 0.0), (-1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, -1.0, 0.0)]
+)
 # The reflection given to a floor that has none, for the reflections switch:
 # enough to see, too little to show mirrored legs as extra ghosts.
 FLOOR_REFLECTANCE = 0.08
@@ -114,7 +125,9 @@ class SceneRenderer:
             _add_shadows_and_reflections(scene.model)
             self._make_context(scene.model)
         markers = len(scene.recording.marker_names or ())
+        rings = (scene.recording.marker_shapes or ()).count("ring")
         shapes = (len(scene.worlds) + 2) * markers  # a beacon is two more
+        shapes += RING_SEGMENTS * rings  # the highlighted world's alone
         needed = scene.model.ngeom + shapes + SPARE_SHAPES
         if new_model or self._shapes.maxgeom < needed:
             self._shapes = mujoco.MjvScene(scene.model, maxgeom=needed)
@@ -306,8 +319,9 @@ class SceneRenderer:
     def frame_all(self) -> None:
         """Look at every drawn world and its markers from a raised angle.
 
-        A world whose positions diverged, to infinity or far beyond the
-        others, is left out, so that it cannot take the camera with it.
+        The highlighted world's rings are taken in whole. A world whose
+        positions diverged, to infinity or far beyond the others, is left
+        out, so that it cannot take the camera with it.
         """
         scene = self.scene
         extent = scene.model.stat.extent
@@ -315,6 +329,15 @@ class SceneRenderer:
         markers = scene.marker_positions()
         if markers is not None:
             points.extend(markers.reshape(-1, 3))
+            shown = zip(
+                markers[scene.highlight],
+                scene.marker_radii()[scene.highlight],
+                scene.recording.marker_shapes,
+                strict=True,
+            )
+            for centre, radius, kind in shown:
+                if kind == "ring":
+                    points.extend(centre + radius * RING_EDGES)
         points = np.array(points)
         points = points[np.isfinite(points).all(axis=1)]
         if len(points):  # around the median, or the best world if none is near it
@@ -417,41 +440,72 @@ class SceneRenderer:
                 shape.category = decoration
 
     def _add_markers(self) -> None:
-        """The markers, in the scene's spare slots: a sphere of each marker's
-        radius per drawn world, and over the highlighted world's markers a
-        beacon sized to the scene, carrying the marker's name, so that a small
-        target is found from any distance."""
+        """The markers, in the scene's spare slots, at the current frame's radii.
+
+        A sphere marker is a sphere per drawn world, with a beacon sized to
+        the scene over the highlighted world's, carrying the marker's name,
+        so that a small target is found from any distance. A ring marker is
+        drawn for the highlighted world alone: rings as wide as a world's
+        range, one per drawn world, would cover the view.
+        """
         scene = self.scene
         positions = scene.marker_positions()
         if positions is None:
             return
         recording = scene.recording
         positions = positions.astype(np.float64)
-        sizes = np.repeat(recording.marker_radius.astype(np.float64)[:, None], 3, 1)
+        radii = scene.marker_radii().astype(np.float64)
         extent = float(scene.model.stat.extent)
         height, pole, head = (share * extent for share in BEACON)
         sphere, cylinder = mujoco.mjtGeom.mjGEOM_SPHERE, mujoco.mjtGeom.mjGEOM_CYLINDER
         ghost_rgba = scene.ghost_rgba
-        for copy, markers in enumerate(positions):
+        for copy, (markers, sizes) in enumerate(zip(positions, radii, strict=True)):
             highlighted = copy == scene.highlight
             if not (highlighted or scene.ghosts_visible):
                 continue
             rgba = MARKER_RGBA if highlighted else ghost_rgba
-            for position, size, name in zip(
-                markers, sizes, recording.marker_names, strict=True
+            for position, radius, name, kind in zip(
+                markers,
+                sizes,
+                recording.marker_names,
+                recording.marker_shapes,
+                strict=True,
             ):
-                self._add_shape(sphere, size, position, rgba)
+                if kind == "ring":
+                    if highlighted:
+                        self._add_ring(position, radius, extent, name)
+                    continue
+                self._add_shape(sphere, (radius,) * 3, position, rgba)
                 if highlighted:
                     up = np.array([0.0, 0.0, height])
                     size = (pole, height / 2, 0.0)
                     self._add_shape(cylinder, size, position + up / 2, rgba)
                     self._add_shape(sphere, (head,) * 3, position + up, rgba, name)
 
-    def _add_shape(self, kind, size, position, rgba, label: str = "") -> None:
+    def _add_ring(self, centre, radius: float, extent: float, name: str) -> None:
+        """A circle lying flat around ``centre``, as line segments a few pixels
+        wide, with the marker's name where it meets the horizontal axis."""
+        angles = np.linspace(0.0, 2 * np.pi, RING_SEGMENTS + 1)
+        flat = np.zeros_like(angles)
+        circle = np.stack([np.cos(angles), np.sin(angles), flat], axis=1)
+        points = centre + radius * circle + (0.0, 0.0, RING_LIFT * extent)
+        width = RING_PIXELS * self._font_scale / 100
+        if self._offscreen_size is None:  # drawn at a share of the window
+            width *= self.graphics.resolution / 100
+        line = mujoco.mjtGeom.mjGEOM_LINE
+        for index, (start, end) in enumerate(zip(points[:-1], points[1:], strict=True)):
+            label = name if index == 0 else ""
+            shape = self._add_shape(line, (0.0, 0.0, 0.0), start, MARKER_RGBA, label)
+            if shape is not None:
+                mujoco.mjv_connector(shape, line, width, start, end)
+
+    def _add_shape(
+        self, kind, size, position, rgba, label: str = ""
+    ) -> mujoco.MjvGeom | None:
         """One decorative shape, which casts no shadow, if there is room for it."""
         shapes = self._shapes
         if shapes.ngeom == shapes.maxgeom:
-            return
+            return None
         shape = shapes.geoms[shapes.ngeom]
         mujoco.mjv_initGeom(
             shape, kind, np.asarray(size, dtype=np.float64), position, _IDENTITY, rgba
@@ -460,6 +514,7 @@ class SceneRenderer:
         if label:
             shape.label = _ascii(label)
         shapes.ngeom += 1
+        return shape
 
     def _overlay(
         self,

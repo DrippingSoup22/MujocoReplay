@@ -15,6 +15,15 @@ overlay shows the facts of the run. The same scene can be rendered to a video.
 
 ## Status
 
+**Stage R10, rings and radii that change, built (2026-10-08):** a marker
+can be drawn as a ring, a circle lying flat around it, and its radius can
+change from frame to frame and differ between worlds. Centipede asked for
+it so that the user sees each episode's range around the target: the
+highlighted world's ring shows when its head leaves the range. Files that
+use either are format version 2, which copies of this tool from before
+refuse; pull every copy, including the GPU desktop's, before Centipede
+writes them.
+
 **Stage R9, any world on its own and new defaults, built (2026-10-08):**
 the panel's Highlight stepper and `B` step through every world of the file,
 not only the drawn ones; a world the count does not draw takes the place of

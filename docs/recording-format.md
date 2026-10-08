@@ -34,7 +34,7 @@ Required keys:
 
 | Key | Type and shape | Meaning |
 | --- | --- | --- |
-| `format_version` | int, scalar | `1` for this document |
+| `format_version` | int, scalar | `2` for a file with a ring marker or a marker radius that changes per frame, `1` otherwise; see the rules below |
 | `model_xml` | str, scalar | The complete model as one MJCF document, with includes already resolved. `mujoco.MjSpec.from_file(path).to_xml()` produces exactly this (verified with MuJoCo 3.12.0: includes and inline meshes come out in one document) |
 | `frame_seconds` | float, scalar | Simulated time between consecutive frames, in seconds |
 | `qpos` | float32, `(T, K, nq)` | Every world's position coordinates at every frame, in the compiled model's `qpos` order |
@@ -55,7 +55,8 @@ Optional keys:
 | `episode_start` | bool, `(T, K)` | all false | True at frames where that world's episode began, so the frame shows a freshly reset pose. The first frame need not be flagged |
 | `marker_names` | str, `(M,)` | none | Names of per-world points to draw, such as a target |
 | `marker_positions` | float32, `(T, K, M, 3)` | none | Each marker's world position at each frame, in metres |
-| `marker_radius` | float32, `(M,)` | none | Radius of the sphere drawn for each marker, in metres |
+| `marker_radius` | float32, `(M,)` or `(T, K, M)` | none | Each marker's radius in metres: one per marker, or one per frame, world, and marker, for a radius that changes, such as a range that each episode sets |
+| `marker_shapes` | str, `(M,)` | every `"sphere"` | How each marker is drawn: `"sphere"`, a ball of the marker's radius, or `"ring"`, a circle of that radius lying flat in the horizontal plane through the marker's position. It may join the marker group, never come without it |
 | `frame_info_names` | str, `(I,)` | none | Names of values that describe each frame, such as the number of updates done so far |
 | `frame_info` | float64, `(T, I)` | none | Those values at each frame; shown in the overlay |
 | `event_frames` | int64, `(E,)` | none | Frames at which something happened, from `0` to `T` inclusive; `T` means after the last frame |
@@ -69,7 +70,13 @@ Rules:
 - Joints that are not inside a replicated body, such as a moving obstacle in
   the static scene, take their values from the highlighted world's row.
 - Marker, event, info, and rank keys come in groups: a group is either
-  complete or absent.
+  complete or absent; `marker_shapes` may join the marker group.
+- `format_version` is the oldest version that holds the file: `2` when a
+  marker is a ring or a marker's radius changes per frame, `1` otherwise.
+  Version 2 added both on 2026-10-08, so that readers made before then, which
+  read version 1 alone, refuse such a file with a message naming
+  `format_version` instead of drawing a ring as a ball, and still read every
+  other file. The reader reads both versions.
 - Each key holds the kind of values the tables give (whole numbers for ids,
   levels, ranks, and event frames; numbers, true or false, or text) with the
   number of dimensions its shape gives; shapes must agree with each other.
@@ -105,8 +112,10 @@ and at the scene composition, and the tool's own modules trust each other.
   simple to read partially), under a temporary name first and then renamed, so
   that a viewer opening the newest file never finds it half written. NumPy
   numbers and arrays in the setup are written as plain numbers and lists, and
-  anything else JSON cannot hold, such as a path, as text. A `Recording` given
-  part of a group, or a level count or ranks that break the rules above,
+  anything else JSON cannot hold, such as a path, as text. The writer writes
+  the oldest format version that holds the file, and `marker_shapes` only
+  when a marker is not a sphere. A `Recording` given part of a group, or a
+  level count, ranks, or marker radii and shapes that break the rules above,
   raises `ValueError` when it is made, so that no file is written that the
   reader would refuse.
 - `read_recording(path) -> Recording`: reads and checks the file.
@@ -150,7 +159,7 @@ after its commit `1b42442`, 2026-10-08):
 | File | `runs/<run>/recordings/cycles_AAAA-BBBB.npz`: the windows collected in cycles `AAAA` to `BBBB`, one episode length: every world's episode from its first step, or several for the worlds that arrived early; a session's last file can be shorter | `runs/<run>/evaluations/<stem>_<actor>_seed<seed>.npz`: every world's first episode, and what followed it until the last world's first episode ended |
 | Worlds | Every world by default (`record_worlds = "all"`), ranked by their summed reward over the recording; or `record_worlds` = N, which keeps N worlds evenly spaced over all ranks, best and worst included (`selected_ranks(W, 1, N)`), or the first N worlds with `record_selection = "first"`. `record_levels` (4) only labels the levels. Each file gives the run-wide `rank`, `ranked_worlds`, `level`, and `level_count`. Earlier runs hold 32 worlds, 4 levels of 8 | All, in the order of their first episode's summed reward |
 | `score` | Sum of every segment's rewards over the recording (`score_name = "summed reward"`) | The first episode's summed reward |
-| Markers | `target`: the head's target, drawn on the ground with the arrival radius | The same |
+| Markers | `target`: the head's target, a sphere on the ground with the arrival radius. From Centipede's task change on (after its commit `1b42442`), also `range`: a ring centred on the target, 2.5 times the distance from the head's tip to the target at the episode's start, changing at the frames where `episode_start` is true | The same |
 | `frame_info` | `updates` (done before the frame) and `steps per world` (collected so far) | none |
 | Events | `update N` at the end of each window | none |
 | `setup_json` | The run, the cycles, the updates done at the start, the worlds and the worlds recorded, the device, the code version, and the run's configuration | The run, the checkpoint, the cycles trained, the actor, the seed, the worlds, and the configuration |
@@ -158,7 +167,8 @@ after its commit `1b42442`, 2026-10-08):
 ## Size
 
 One world-frame costs `4·nq` bytes: 276 bytes for a model with 69 position
-coordinates. For that model:
+coordinates, and each marker 12 more for its position, or 16 when its radius
+changes per frame. For that model, without markers:
 
 | Recording | Size |
 | --- | --- |

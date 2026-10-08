@@ -5,7 +5,8 @@ from dataclasses import replace
 import mujoco
 import numpy as np
 
-from mujoco_replay.render import SceneRenderer, _cut
+from mujoco_replay.recording import Recording
+from mujoco_replay.render import RING_SEGMENTS, SceneRenderer, _cut
 from mujoco_replay.scene import ComposedScene
 from mujoco_replay.settings import PERFORMANCE, QUALITY
 from mujoco_replay.ui import text_width
@@ -157,3 +158,58 @@ def test_side_lines_are_cut_in_a_narrow_area_and_whole_in_a_wide_one(
     assert narrow_cut == 12 and narrow_hidden == 0
     assert wide_cut == wide_hidden == 0
     assert long.endswith("...") and long_width <= 200
+
+
+def ring_recording(make_recording, radius) -> Recording:
+    """Two worlds 1 m apart, each with a target and a range ring around it."""
+    centres = np.zeros((2, 2, 2, 3))
+    centres[:, 1] = (1.0, 0.0, 0.0)
+    return make_recording(
+        frames=2,
+        worlds=2,
+        marker_names=("target", "range"),
+        marker_positions=centres,
+        marker_radius=radius,
+        marker_shapes=("sphere", "ring"),
+    )
+
+
+def test_a_ring_lies_flat_around_its_marker_at_the_radius_of_the_frame(
+    gl_context, make_recording
+):
+    radius = np.full((2, 2, 2), 0.01, dtype=np.float32)
+    radius[:, :, 1] = [[0.3, 0.5], [0.4, 0.6]]  # per frame and world
+    scene = ComposedScene(ring_recording(make_recording, radius), np.arange(2))
+    renderer = SceneRenderer(scene, offscreen_size=(64, 48))
+
+    def ring_starts() -> np.ndarray:
+        renderer.render(64, 48, hud=False)
+        shapes = renderer._shapes
+        lines = [
+            shapes.geoms[index]
+            for index in range(shapes.ngeom)
+            if shapes.geoms[index].type == mujoco.mjtGeom.mjGEOM_LINE
+        ]
+        return np.array([line.pos for line in lines])
+
+    first = ring_starts()
+    scene.set_frame(1)
+    second = ring_starts()
+    renderer.close()
+
+    assert len(first) == RING_SEGMENTS  # the highlighted world's ring alone
+    for starts, expected in ((first, 0.3), (second, 0.4)):
+        assert np.allclose(np.linalg.norm(starts[:, :2], axis=1), expected, atol=1e-5)
+        assert np.allclose(starts[:, 2], starts[0, 2]) and starts[0, 2] > 0  # flat
+
+
+def test_framing_takes_in_the_highlighted_worlds_ring(gl_context, make_recording):
+    def distance(ring_radius: float) -> float:
+        recording = ring_recording(make_recording, [0.01, ring_radius])
+        renderer = SceneRenderer(
+            ComposedScene(recording, np.arange(2)), offscreen_size=(64, 48)
+        )
+        renderer.close()
+        return renderer.camera.distance
+
+    assert distance(5.0) > distance(0.01) + 5

@@ -160,9 +160,10 @@ interaction review found that, and the fading keeps it readable. Hidden
 ghosts have alpha 0, and MuJoCo leaves such shapes out of the scene
 altogether.
 
-Markers: after `mjv_updateScene`, one sphere per drawn world and marker is
-added with `mjv_initGeom` into the scene's spare slots, at the marker's
-radius: the highlighted world's in a saturated magenta, the ghosts' in the
+Markers: after `mjv_updateScene`, one sphere per drawn world and marker,
+unless the marker is a ring (below), is added with `mjv_initGeom` into the
+scene's spare slots, at the marker's radius at the current frame: the
+highlighted world's in a saturated magenta, the ghosts' in the
 ghost grey. Over each of the highlighted world's markers stands a beacon
 sized to the scene: a pole half the composite's `stat.extent` high and a
 head that carries the marker's name, drawn as the shape's label. Centipede's
@@ -171,6 +172,23 @@ radius of 1 mm, too small to find by its sphere alone; the beacon shows it
 from any distance, and the sphere still shows the arrival zone. Markers are
 decoration, so they cast no shadow; they hide with the ghosts, and on their
 own with `M`.
+
+A ring marker (`marker_shapes`), asked for by Centipede for the user on
+2026-10-08, is a circle of the marker's radius lying flat around its
+position: Centipede's range, centred on the target, ends an episode when the
+head's tip leaves it, and the user wants to see when that happens. It is
+drawn for the highlighted world alone, since rings of up to 150 mm, one per
+drawn world, would cover the view; the highlight reaches every world, so
+every world's ring can be seen. The circle is 64 line segments
+(`mjv_connector` with `mjGEOM_LINE`, whose width MuJoCo takes in pixels): 3
+pixels at font scale 100, wider at higher scales and narrower at a lower
+resolution share, so that it looks the same on the screen; in the highlight's
+magenta, with the marker's name where it meets the horizontal axis, and no
+beacon, since it is large enough to find. It is lifted 2 % of the scene's
+extent above the marker, so that a floor under a marker on the ground cannot
+hide it. A marker's radius may change per frame (`marker_radius` of shape
+`(T, K, M)`), as Centipede's range does at each new episode; every marker,
+ring or sphere, is drawn at the current frame's radius.
 
 ## Choosing the worlds
 
@@ -250,7 +268,7 @@ world is. Clicking or dragging on the timeline pauses at that frame
 | B, Shift+B | Highlight the next or previous world of the file, by rank, drawn or not |
 | G | Hide the ghosts, or show them again at their strength |
 | M | Show or hide the markers |
-| V | Reset the view: frame every drawn world from a raised angle |
+| V | Reset the view: frame every drawn world, and the highlighted world's rings, from a raised angle |
 | T | Look straight down, from above |
 | C | Centre the camera on the highlighted world |
 | F | Follow the highlighted world on or off |
@@ -327,9 +345,10 @@ buffer, so the video carries it unless `--no-hud` is given.
 
 A free camera (`mjCAMERA_FREE`) starts looking at the centre of the drawn
 worlds and their markers at frame 0, from a raised angle, at a distance of 0.8
-times their spread plus 1.2 times the composite model's `stat.extent`; `V`,
-or the panel's Reset button, frames them so again, and `T` looks straight
-down. Framing leaves out a world whose positions are not finite or lie more
+times their spread plus 1.2 times the composite model's `stat.extent`, with
+the highlighted world's rings taken in whole; `V`, or the panel's Reset
+button, frames them so again, as they are at the current frame, and `T`
+looks straight down. Framing leaves out a world whose positions are not finite or lie more
 than 1,000 extents from the others' median (from the best world's centre,
 when half the worlds diverged and the median lies between them), as a
 diverged simulation leaves them, and neither centring nor following moves the camera to a point that is
