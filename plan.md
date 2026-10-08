@@ -387,12 +387,12 @@ trains; this tool draws up to 128 of a file's worlds, and a file may hold any
 number. For drawing more at once, measured with Centipede's model: composing
 took 0.4, 5.3, 22, and 89 s for 32, 128, 256, and 512 copies, four times as
 long for each doubling, and 1,024 copies overflowed the composite's 4 MiB of
-working memory; issuing one frame's draws took 12, 38, 106, 164, and 392 ms
-for 32 to 1,024 worlds with Mesa's no-op driver, work on the processor that a
-faster graphics card does not remove. Posing one model per world and adding
-its shapes to the scene (`mjv_addGeoms`) instead of composing took 11 ms a
-frame for 1,024 worlds, with no wait to open. How many worlds to record and
-draw is left to the user's decision.
+working memory and took 6.7 min with 64 MiB; issuing one frame's draws took
+12, 38, 106, 164, and 392 ms for 32 to 1,024 worlds with Mesa's no-op driver,
+work on the processor that a faster graphics card does not remove. Posing one
+model per world and adding its shapes to the scene (`mjv_addGeoms`) instead
+of composing took 11 ms a frame for 1,024 worlds, with no wait to open. How
+many worlds to record and draw is left to the user's decision.
 
 ## Status
 

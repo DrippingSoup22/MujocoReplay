@@ -131,9 +131,9 @@ grow with the square of the number of bodies (the same copies written out as
 plain XML compile 6 to 8 times slower still), so 128 worlds take several
 seconds to open; the composed-scene cache of stage R6 removes the wait the
 second time. Beyond the tool's 128, measured on 2026-10-08: 22 s for 256
-copies and 89 s for 512, which peaked at 0.8 GB, and 1,024 copies did not
-compile in the 4 MiB of working memory of step 5 (`mj_stackAlloc` ran out).
-Spatial
+copies and 89 s for 512, which peaked at 0.8 GB; 1,024 copies did not
+compile in the 4 MiB of working memory of step 5 (`mj_stackAlloc` ran out),
+and took 6.7 min and 1.3 GB with 64 MiB. Spatial
 tendons, skins, and flexible bodies (cloth) are not drawn, since they go with
 the other unused parts; a model compiled with `discardvisual` shows only its
 collision shapes, as MuJoCo itself would.
