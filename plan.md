@@ -381,18 +381,21 @@ with one world drawn, the Highlight stepper, `B`, and Shift+B showed ranks 2,
 and a double-click on a ghost highlighted rank 25. A 1,024-world stand-in
 of 256 frames (76 MB) read in 0.08 s and stepped the same way.
 
-The 32 worlds come from Centipede, which records `record_levels ×
-record_per_level` = 4 × 8 worlds of a window by default, out of the 1,024 it
-trains; this tool draws up to 128 of a file's worlds, and a file may hold any
-number. For drawing more at once, measured with Centipede's model: composing
+The 32 worlds come from Centipede, which keeps `record_levels ×
+record_per_level` = 4 × 8 worlds in each recording by default, out of the 64
+worlds of the user's current runs (1,024 in its full training); this tool
+draws up to 128 of a file's worlds, and a file may hold any number. For
+drawing more at once, measured with Centipede's model: composing
 took 0.4, 5.3, 22, and 89 s for 32, 128, 256, and 512 copies, four times as
 long for each doubling, and 1,024 copies overflowed the composite's 4 MiB of
 working memory and took 6.7 min with 64 MiB; issuing one frame's draws took
 12, 38, 106, 164, and 392 ms for 32 to 1,024 worlds with Mesa's no-op driver,
 work on the processor that a faster graphics card does not remove. Posing one
 model per world and adding its shapes to the scene (`mjv_addGeoms`) instead
-of composing took 11 ms a frame for 1,024 worlds, with no wait to open. How
-many worlds to record and draw is left to the user's decision.
+of composing took 11 ms a frame for 1,024 worlds, with no wait to open. The
+user then chose to record every world of a run, with a setting for how many
+worlds a recording keeps: a change to Centipede, handed to its sessions in a
+note outside this repository. Drawing stays at up to 128 worlds at once.
 
 ## Status
 

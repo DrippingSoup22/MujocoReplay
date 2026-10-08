@@ -140,19 +140,20 @@ from each world's rank among all its worlds.
 
 ## What Centipede writes
 
-Centipede records training windows and evaluation episodes; its
+Centipede records training episodes and evaluation episodes; its
 `docs/configuration.md` describes the settings. Its files follow these
-conventions, which are not part of the format:
+conventions, which are not part of the format (as of Centipede's commit
+`9d14982`, 2026-10-08):
 
-| Item | Training window | Evaluation |
+| Item | Training recording | Evaluation |
 | --- | --- | --- |
-| File | `runs/<run>/recordings/cycle_NNNN.npz`: the window collected in cycle `NNNN`, by the agents after `NNNN − 1` updates | `runs/<run>/evaluations/<stem>_<actor>_seed<seed>.npz`: every world's first episode, and what followed it until the last world's first episode ended |
-| Worlds | Selected by `selected_ranks` from all worlds, ranked by the window's summed reward, `record_levels × record_per_level` of them, 4 × 8 = 32 by default; or as many first worlds, when continuity across windows is wanted | All |
-| `score` | Sum of every segment's rewards over the window (`score_name = "summed reward"`) | The same, over the recording |
+| File | `runs/<run>/recordings/cycles_AAAA-BBBB.npz`: the windows collected in cycles `AAAA` to `BBBB`, one episode length: every world's episode from its first step, or several for the worlds that arrived early; a session's last file can be shorter | `runs/<run>/evaluations/<stem>_<actor>_seed<seed>.npz`: every world's first episode, and what followed it until the last world's first episode ended |
+| Worlds | Selected by `selected_ranks` from all worlds, ranked by their summed reward over the recording, `record_levels × record_per_level` of them, 4 × 8 = 32 by default; or as many first worlds, when continuity across recordings is wanted. Each file gives the run-wide `rank`, `ranked_worlds`, `level`, and `level_count`. The user chose on 2026-10-08 to record every world, a change handed to Centipede | All, in the order of their first episode's summed reward |
+| `score` | Sum of every segment's rewards over the recording (`score_name = "summed reward"`) | The first episode's summed reward |
 | Markers | `target`: the head's target, drawn on the ground with the arrival radius | The same |
-| `frame_info` | `updates` (done so far) and `steps per world` (collected so far) | none |
-| Events | `update N` at frame `T` | none |
-| `setup_json` | The run's complete configuration, the cycle, the device, the code version | The checkpoint, seed, actor, and configuration |
+| `frame_info` | `updates` (done before the frame) and `steps per world` (collected so far) | none |
+| Events | `update N` at the end of each window | none |
+| `setup_json` | The run, the cycles, the updates done at the start, the worlds and the worlds recorded, the device, the code version, and the run's configuration | The run, the checkpoint, the cycles trained, the actor, the seed, the worlds, and the configuration |
 
 ## Size
 
