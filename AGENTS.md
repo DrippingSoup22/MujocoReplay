@@ -42,9 +42,5 @@
 - When a piece of work ends, leave the working folder clean: nothing modified
   or untracked, and no generated or stray files tracked (`.gitignore` covers
   them).
-- Small, safe changes go straight to `main`. Longer work goes on its own
-  branch, and `main` is fast-forwarded to it after each finished, tested
-  piece, so that no branch drifts far from `main`. Push both.
 - Before each commit, run the tests with and without a display, and `ruff`.
-- Overrides the global credit rule: no AI co-author trailers or mentions
-  anywhere in the repository, not even in cloud sessions.
+- Commits carry Claude's credit lines (the user's choice, 2026-10-08).
