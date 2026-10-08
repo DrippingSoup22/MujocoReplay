@@ -147,7 +147,7 @@ conventions, which are not part of the format:
 | Item | Training window | Evaluation |
 | --- | --- | --- |
 | File | `runs/<run>/recordings/cycle_NNNN.npz`: the window collected in cycle `NNNN`, by the agents after `NNNN − 1` updates | `runs/<run>/evaluations/<stem>_<actor>_seed<seed>.npz`: every world's first episode, and what followed it until the last world's first episode ended |
-| Worlds | Selected by `selected_ranks` from all worlds, ranked by the window's summed reward; or the first worlds, when continuity across windows is wanted | All |
+| Worlds | Selected by `selected_ranks` from all worlds, ranked by the window's summed reward, `record_levels × record_per_level` of them, 4 × 8 = 32 by default; or as many first worlds, when continuity across windows is wanted | All |
 | `score` | Sum of every segment's rewards over the window (`score_name = "summed reward"`) | The same, over the recording |
 | Markers | `target`: the head's target, drawn on the ground with the arrival radius | The same |
 | `frame_info` | `updates` (done so far) and `steps per world` (collected so far) | none |

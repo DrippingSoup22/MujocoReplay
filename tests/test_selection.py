@@ -52,6 +52,21 @@ def test_a_count_of_worlds_takes_the_best_of_as_many_rank_bands():
     assert choose_worlds(recording, 2, world_ids=[14, 10]).tolist() == [0, 4]
 
 
+def test_a_kept_world_is_drawn_in_place_of_the_best_of_its_band():
+    # Rank order, best first: 1, 3, 6, 2, 5, 7, 0, 4.
+    recording = Recording(
+        "<mujoco/>",
+        0.02,
+        np.zeros((1, 8, 1)),
+        score=[0.1, 0.9, 0.5, 0.8, -1.0, 0.3, 0.7, 0.2],
+    )
+
+    assert choose_worlds(recording, 1, keep=7).tolist() == [7]
+    assert choose_worlds(recording, 2, keep=2).tolist() == [2, 5]  # the upper half
+    assert choose_worlds(recording, 2, keep=0).tolist() == [1, 0]  # the lower half
+    assert choose_worlds(recording, 8, keep=4).tolist() == [1, 3, 6, 2, 5, 7, 0, 4]
+
+
 def test_the_counts_offered_double_up_to_128_and_the_files_worlds():
     assert world_counts(1) == [1]
     assert world_counts(3) == [1, 2, 3]

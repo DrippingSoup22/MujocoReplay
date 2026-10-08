@@ -37,8 +37,8 @@ blob anyway.
 | Module | Does | Imports at module level |
 | --- | --- | --- |
 | `recording.py` | The file format: `Recording`, `write_recording`, `read_recording` | NumPy |
-| `selection.py` | `selected_ranks` and `level_of_ranks`, shared with producers; `world_counts` and `choose_worlds(recording, count, world_ids=None)`: which of a file's worlds to draw, and in what rank order | NumPy |
-| `scene.py` | `ComposedScene`: the composite model, the joint mapping, colours, markers, `set_frame(frame_index)`, and `fits`/`show` to reuse the composite for another file of the same model | MuJoCo, NumPy |
+| `selection.py` | `selected_ranks` and `level_of_ranks`, shared with producers; `world_counts` and `choose_worlds(recording, count, world_ids=None, keep=None)`: which of a file's worlds to draw, and in what rank order | NumPy |
+| `scene.py` | `ComposedScene`: the composite model, the joint mapping, colours, markers, `set_frame(frame_index)`, and `fits`/`show` to reuse the composite for another file of the same model, or other worlds of the same file | MuJoCo, NumPy |
 | `playback.py` | `Playback`: the playlist, current frame, play/pause, speed presets, stepping and seeking, the events just passed, and the playback line of the overlay; pure logic, no graphics | NumPy, through `recording` |
 | `render.py` | `SceneRenderer`: the MuJoCo render context, camera, graphics settings, drawing of the scene, markers, overlay, timeline, and reading pixels back; works in a window or offscreen | MuJoCo, NumPy |
 | `settings.py` | `Settings` and `Graphics`: the Quality and Performance presets, the ghosts' strengths, and keeping the settings in the user's settings folder | NumPy, through `selection` |
@@ -130,7 +130,10 @@ Composing Centipede's model takes 0.17 s for 16 copies, 0.45 s for 32, and
 grow with the square of the number of bodies (the same copies written out as
 plain XML compile 6 to 8 times slower still), so 128 worlds take several
 seconds to open; the composed-scene cache of stage R6 removes the wait the
-second time. Spatial
+second time. Beyond the tool's 128, measured on 2026-10-08: 22 s for 256
+copies and 89 s for 512, which peaked at 0.8 GB, and 1,024 copies did not
+compile in the 4 MiB of working memory of step 5 (`mj_stackAlloc` ran out).
+Spatial
 tendons, skins, and flexible bodies (cloth) are not drawn, since they go with
 the other unused parts; a model compiled with `discardvisual` shows only its
 collision shapes, as MuJoCo itself would.
@@ -148,8 +151,10 @@ whose ids differ from the original's. Both arrays are plain fields of
 world to another while playing. The ghosts' alpha comes from their strength,
 a setting of the panel: faint 0.07, normal 0.15, strong 0.35 with up to 8
 worlds drawn, falling with the square root of the number of worlds beyond
-(normal is 0.075 with 32). MuJoCo draws transparent shapes after opaque ones,
-blended over them, and a run's worlds start on top of one another, so with a
+(faint is 0.035 with 32). Faint is the default, in the window and the video,
+as the user chose on 2026-10-08; it was normal before. MuJoCo draws
+transparent shapes after opaque ones, blended over them, and a run's worlds
+start on top of one another, so with a
 fixed alpha 15 ghosts in front of the highlighted world washed it out; the
 interaction review found that, and the fading keeps it readable. Hidden
 ghosts have alpha 0, and MuJoCo leaves such shapes out of the scene
@@ -182,19 +187,34 @@ values, so that every band holds a world to draw. `--worlds N` sets the count
 (16 by default) and `--ids 3,7,9` draws exactly those `world_ids` instead; the
 two exclude each other, and an `--ids` list that matches no world of a file is
 an error naming the file; while `--ids` holds, the panel names the worlds as
-chosen by id instead of offering the count. The highlighted world starts as
-rank 0; `B` moves the highlight through the drawn worlds in rank order, and a
-double-click on a world highlights it, so each ghost can be inspected in
-colour. The rank shown is the producer's, among all its worlds, when the file
-gives one (`rank` and `ranked_worlds`), and the rank within the file
-otherwise.
+chosen by id instead of offering the count. The rank shown is the
+producer's, among all its worlds, when the file gives one (`rank` and
+`ranked_worlds`), and the rank within the file otherwise.
+
+The highlighted world starts as the best. The panel's Highlight
+stepper and `B` move it through every world of the file in rank order, drawn
+or not, and a double-click on a world highlights it, so that each world can
+be inspected in colour. The user asked on 2026-10-08 that any world of the
+run can be watched on its own: before, the highlight moved through the drawn
+worlds only, so with one world drawn no other could be seen. A world that the
+count does not draw takes the place of the best world of its band
+(`choose_worlds(..., keep=index)`): the count stays as set, the ghosts
+still spread over the ranks, and the same composite shows it at once, as for
+the next file of a run. So with every world drawn nothing changes but the
+highlight; with one world drawn, the one drawn is the highlighted world;
+with 4 of 32, highlighting rank 6, as the overlay counts, draws it instead of
+rank 1, its quarter's best, which comes back when the highlight leaves that
+quarter. While `--ids`
+holds, the highlight moves through the chosen worlds only.
 
 ## Playback and keys
 
 `Playback` owns a playlist of recordings and a position: file index, frame
 index, playing or paused, and the speed as seconds of wall time per recorded
-frame. The default is 0.3 s per frame, so that a 20 ms step is visible as a
-step. The presets, in seconds per frame, are 3, 2, 1, 0.5, 0.3, 0.2, 0.1,
+frame. The default is 0.1 s per frame, ten recorded frames a second, which
+the user chose on 2026-10-08 (it was 0.3 s): a 20 ms step is still seen as a
+step, and a 256-frame window plays in 26 s. The presets, in seconds per
+frame, are 3, 2, 1, 0.5, 0.3, 0.2, 0.1,
 0.05, then real time (`frame_seconds`), 2× and 4× real time, kept in order of
 speed, so that a file with frames longer than 0.05 s places real time among
 the fixed presets; the overlay shows both the seconds per frame and the
@@ -213,9 +233,10 @@ consecutive windows of one run, the same composite shows it (`show`), at once
 and with the camera kept; otherwise a new scene is composed, after which the
 viewer calls `Playback.sync(now)` so that the time spent composing is not
 played. A world the user highlighted stays highlighted, by `world_ids`, when
-the new file draws it; otherwise, and whenever the user has not picked one,
-the new file's best world is. Clicking or dragging on the timeline pauses at
-that frame (`Playback.seek`).
+the new file holds it, drawn in place of the best world of its band;
+otherwise, and whenever the user has not picked one, the new file's best
+world is. Clicking or dragging on the timeline pauses at that frame
+(`Playback.seek`).
 
 | Key | Action |
 | --- | --- |
@@ -226,7 +247,7 @@ that frame (`Playback.seek`).
 | Home, End | First or last frame of the file |
 | R | Restart the file |
 | N, P | Next or previous file in the playlist |
-| B, Shift+B | Highlight the next or previous drawn world, by rank |
+| B, Shift+B | Highlight the next or previous world of the file, by rank, drawn or not |
 | G | Hide the ghosts, or show them again at their strength |
 | M | Show or hide the markers |
 | V | Reset the view: frame every drawn world from a raised angle |
@@ -272,7 +293,7 @@ recording's text are replaced: `·` by `|`, accents dropped, the rest by `?`.
   (`32 of 1,024 worlds drawn | 31 ghosts`, with `(hidden)` while `G` hides
   them). A line too long for the window is cut with `...`.
 - Bottom left: the playback line (`file 2 of 3 | frame 124 / 256 | 2.46 s |
-  0.3 s per frame (0.067x real time) | paused`); the file shows only for a
+  0.1 s per frame (0.2x real time) | paused`); the file shows only for a
   playlist, frames count from 1, and the time is the frame's since the start.
 - Bottom: a thin timeline bar across the window, filled to the current frame,
   with an orange tick per event and its label in a box above it (a label that
@@ -372,7 +393,10 @@ and draws everything again for a reflection: 32 worlds make 3,969 draws per
 frame without reflections and 8,064 with them. With Mesa's no-op driver, which
 issues the calls without drawing, issuing them took 9.8 ms at 32 worlds and
 41 ms at 128, the largest cost on the processor; posing a frame took 0.2 and
-0.8 ms. In the software renderer, against Performance, reflections added 93 %,
+0.8 ms. Measured again on 2026-10-08 for the question of drawing more, the
+calls took 106 ms at 256 worlds, 164 ms at 512, and 392 ms at 1,024: about
+0.35 ms per world, which a faster graphics card does not remove. In the
+software renderer, against Performance, reflections added 93 %,
 4× anti-aliasing 86 %, shadows 57 %, and MuJoCo's own tessellation of round
 shapes (28 facets around, 16 along) 280 %; reflections changed the picture of
 Centipede's dark floor by 0.3 of 255 on average, and 16 by 8 facets changed
@@ -393,7 +417,11 @@ smooth maximum there, and 128 a view for pausing.
 | Reflections | on | off | `mjRND_REFLECTION`; a floor (a plane with a material) that does not reflect reflects 0.08 |
 | Anti-aliasing | on | off | 4 samples in MuJoCo's offscreen buffer (`vis.quality.offsamples`) |
 | Fine shapes | on | off | `vis.quality.numslices` and `numstacks`: 16 and 8, or 12 and 6 |
-| Resolution | 100 % | 75 % | the share of the window's width and height drawn, then scaled up |
+| Resolution | 100 % | 100 % | the share of the window's width and height drawn, then scaled up |
+
+Both presets draw at full resolution, as the user asked on 2026-10-08:
+Performance drew 75 % before. The Resolution stepper still lowers it to 75 or
+50 %, for a card that the other switches leave short of frames.
 
 Changing a switch after a preset makes the mode "custom". The anti-aliasing
 and the shapes are part of the `MjrContext`, which is made again when they
@@ -488,7 +516,11 @@ in the user's settings folder (`%APPDATA%\MujocoReplay` on Windows,
 next start; a missing or
 damaged file, or a wrong value, gives the default for that value, and a
 byte-order mark, which some Windows editors write, is accepted. The first
-start is in Performance mode with 16 worlds.
+start is in Performance mode, at full resolution, with 16 worlds and faint
+ghosts. The file carries a version, raised when a default changes: a file
+without one, saved before the user changed the defaults on 2026-10-08, keeps
+every value but the ghosts' strength and the resolution, which take the new
+defaults once.
 
 Composed scenes are cached in the user's cache folder
 (`%LOCALAPPDATA%\MujocoReplay\cache` on Windows, `~/.cache/mujoco-replay` on
@@ -511,9 +543,9 @@ switch turns the cache off, and says where the cache is.
 ## Video
 
 `mujoco-replay render FILES --out replay.mp4 [--width 1280 --height 720
---fps 30 --speed 0.3 --mode quality --no-hud]` plays the playlist at `--speed` seconds per
+--fps 30 --speed 0.1 --mode quality --no-hud]` plays the playlist at `--speed` seconds per
 recorded frame and writes `fps` video frames per second, so each recorded
-frame repeats for `speed × fps` video frames (9 at the defaults). Frames go to
+frame repeats for `speed × fps` video frames (3 at the defaults). Frames go to
 `imageio.get_writer` with the `ffmpeg` plugin from `imageio-ffmpeg`, which
 bundles its own encoder, so no system installation is needed. The `video`
 extra installs both; the viewer does not need them.
@@ -524,8 +556,9 @@ however long the drawing takes. A recorded frame is drawn once and its pixels
 repeated, and drawn again only when the event flash appears or goes. When the
 last file ends with an event (frame `T`), the last frame is held for the
 second the flash lasts, so that the video shows it too. Each file shows its
-own best world in colour, and consecutive files of one model reuse the
-composite, as in the window. The size is rounded down to even numbers,
+own best world in colour and the others as faint ghosts, and consecutive
+files of one model reuse the composite, as in the window. The size is
+rounded down to even numbers,
 which the H.264 encoder needs, and the font scale follows the height (150 at
 720 rows, 200 at 1,080). A progress line counts the video frames on the error
 stream. With the software renderer of the development container, two 40-frame

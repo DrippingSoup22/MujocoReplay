@@ -69,14 +69,19 @@ def world_counts(world_count: int) -> list[int]:
 
 
 def choose_worlds(
-    recording: Recording, count: int, world_ids: list[int] | None = None
+    recording: Recording,
+    count: int,
+    world_ids: list[int] | None = None,
+    keep: int | None = None,
 ) -> np.ndarray:
     """Indices into the file's worlds to draw, best first.
 
     By default the file's worlds are split by score rank into ``count`` bands
     of as equal a size as possible, and the best world of each band is drawn:
     1 is the best world, 2 the best of each half, and every world when the
-    file holds no more than ``count``. With ``world_ids``, exactly those
+    file holds no more than ``count``. ``keep``, an index into the file's
+    worlds, is drawn in place of the best world of its band, so that any
+    world can be shown whatever the count. With ``world_ids``, exactly those
     producer indices, in rank order. Ties keep the file's order.
     """
     order = np.argsort(-recording.score, kind="stable")
@@ -86,5 +91,10 @@ def choose_worlds(
             [index for index in order if int(recording.world_ids[index]) in wanted],
             dtype=np.int64,
         )
-    ranks, _ = selected_ranks(recording.world_count, count, 1)
+    total = recording.world_count
+    ranks, _ = selected_ranks(total, count, 1)
+    if keep is not None and total > count:
+        # One rank per band, band b's at ranks[b]: keep's band draws keep.
+        rank = int(np.flatnonzero(order == keep)[0])
+        ranks[level_of_ranks(rank, total, count) - 1] = rank
     return order[ranks]

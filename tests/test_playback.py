@@ -90,7 +90,7 @@ def test_the_speed_presets_run_both_ways_and_stop_at_the_ends():
     playback = Playback([clip(10)])
     faster, slower = [], []
 
-    for _ in range(7):
+    for _ in range(5):
         playback.faster()
         faster.append(playback.seconds_per_frame)
     multiple = playback.real_time_multiple
@@ -98,7 +98,7 @@ def test_the_speed_presets_run_both_ways_and_stop_at_the_ends():
         playback.slower()
         slower.append(playback.seconds_per_frame)
 
-    assert faster == pytest.approx([0.2, 0.1, 0.05, 0.02, 0.01, 0.005, 0.005])
+    assert faster == pytest.approx([0.05, 0.02, 0.01, 0.005, 0.005])
     assert multiple == pytest.approx(4)
     assert slower == pytest.approx([0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 1, 2, 3, 3])
     playback.default_speed()

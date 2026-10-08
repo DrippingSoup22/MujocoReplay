@@ -15,6 +15,7 @@ from pathlib import Path
 
 import numpy as np
 
+from mujoco_replay.playback import DEFAULT_SECONDS_PER_FRAME
 from mujoco_replay.recording import (
     Recording,
     RecordingError,
@@ -131,7 +132,7 @@ def build_parser() -> argparse.ArgumentParser:
         subcommand.add_argument(
             "--speed",
             type=_positive(float),
-            default=0.3,
+            default=DEFAULT_SECONDS_PER_FRAME,
             help="seconds per recorded frame",
         )
         subcommand.add_argument("--no-hud", action="store_true")

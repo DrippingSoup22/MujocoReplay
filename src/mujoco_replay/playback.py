@@ -10,7 +10,7 @@ import math
 
 from mujoco_replay.recording import Recording
 
-DEFAULT_SECONDS_PER_FRAME = 0.3
+DEFAULT_SECONDS_PER_FRAME = 0.1
 # Speed presets in seconds per recorded frame. Real time and its multiples are
 # added per file, since they depend on the file's frame_seconds.
 FIXED_PRESETS = (3.0, 2.0, 1.0, 0.5, 0.3, 0.2, 0.1, 0.05)

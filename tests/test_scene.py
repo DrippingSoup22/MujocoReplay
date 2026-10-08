@@ -193,8 +193,8 @@ def test_ghosts_fade_as_more_worlds_are_drawn_and_hidden_ones_vanish(make_record
     few = ComposedScene(make_recording(worlds=4), np.arange(4))
     many = ComposedScene(make_recording(worlds=32), np.arange(32))
 
-    assert few.ghost_rgba[3] == pytest.approx(0.15)
-    assert many.ghost_rgba[3] == pytest.approx(0.075)  # with the square root of 8/32
+    assert few.ghost_rgba[3] == pytest.approx(0.07)  # faint, the default
+    assert many.ghost_rgba[3] == pytest.approx(0.035)  # with the square root of 8/32
     many.set_ghosts("hidden")
     assert not many.model.geom_rgba[many.ghost_geoms, 3].any()
 

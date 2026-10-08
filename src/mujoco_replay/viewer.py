@@ -252,7 +252,6 @@ class Viewer:
         self._saved = settings  # what is saved: the run's own choices left out
         self.seconds_per_frame = seconds_per_frame
         self.recordings: list[Recording] = []
-        self.worlds: list[np.ndarray] = []
         self.ids: list[int] | None = None
         self.playback: Playback | None = None
         self.scene = ComposedScene(_empty_world(), np.arange(1))
@@ -273,7 +272,7 @@ class Viewer:
         self._shown_file = 0
         self._picked: int | None = None  # the world id the user highlighted
         self._shown_ghosts = (
-            "normal" if settings.ghosts == "hidden" else settings.ghosts
+            Settings().ghosts if settings.ghosts == "hidden" else settings.ghosts
         )
         self._dirty = True
         self._cursor = glfw.get_cursor_pos(window)
@@ -328,11 +327,10 @@ class Viewer:
 
     def load(self, recordings: list[Recording], ids: list[int] | None = None) -> None:
         """Play ``recordings`` from the first; a model that fails leaves all as was."""
-        count = self.settings.worlds
-        worlds = [choose_worlds(recording, count, ids) for recording in recordings]
-        self._say_now(f"Composing {len(worlds[0])} worlds ...")
-        scene = ComposedScene(recordings[0], worlds[0], self._cache())
-        self.recordings, self.worlds, self.ids = recordings, worlds, ids
+        worlds = choose_worlds(recordings[0], self.settings.worlds, ids)
+        self._say_now(f"Composing {len(worlds)} worlds ...")
+        scene = ComposedScene(recordings[0], worlds, self._cache())
+        self.recordings, self.ids = recordings, ids
         speed = self.seconds_per_frame
         if self.playback is not None:
             speed = self.playback.seconds_per_frame
@@ -459,13 +457,12 @@ class Viewer:
             rows.append(ui.Stepper("Shown", shown, "fewer", "more"))
         else:  # the worlds named on the command line, whatever the count
             rows.append(ui.Note(f"Shown: {shown}, chosen by id"))
-        if playback is not None and len(self.scene.worlds) > 1:
+        if playback is not None and len(self._highlightable()) > 1:
             world = self.scene.worlds[self.scene.highlight]
             rank = f"rank {world_rank(self.scene.recording, world)[0]:,}"
-            rows += [
-                ui.Stepper("Highlight", rank, "previous world", "next world"),
-                ui.Stepper("Ghosts", settings.ghosts, "fainter", "stronger"),
-            ]
+            rows.append(ui.Stepper("Highlight", rank, "previous world", "next world"))
+        if playback is not None and len(self.scene.worlds) > 1:
+            rows.append(ui.Stepper("Ghosts", settings.ghosts, "fainter", "stronger"))
         if playback is not None:
             rows += [
                 ui.Section("View"),
@@ -560,8 +557,8 @@ class Viewer:
             "next file": playing(lambda playback: playback.next_file()),
             "fewer": lambda: self._step_worlds(-1),
             "more": lambda: self._step_worlds(1),
-            "previous world": lambda: self._highlight(self.scene.highlight - 1),
-            "next world": lambda: self._highlight(self.scene.highlight + 1),
+            "previous world": lambda: self._step_highlight(-1),
+            "next world": lambda: self._step_highlight(1),
             "ghosts": self._toggle_ghosts,
             "fainter": lambda: self._step_ghosts(-1),
             "stronger": lambda: self._step_ghosts(1),
@@ -651,13 +648,10 @@ class Viewer:
 
     def _recompose(self) -> None:
         """Choose and compose the worlds again after the count changed."""
-        count = self.settings.worlds
-        self.worlds = [
-            choose_worlds(recording, count, self.ids) for recording in self.recordings
-        ]
-        index = self.playback.file_index
-        self._say_now(f"Composing {len(self.worlds[index])} worlds ...")
-        scene = ComposedScene(self.recordings[index], self.worlds[index], self._cache())
+        recording = self.recordings[self.playback.file_index]
+        worlds = self._choose(recording)
+        self._say_now(f"Composing {len(worlds)} worlds ...")
+        scene = ComposedScene(recording, worlds, self._cache())
         self._use(scene, reframe=False)
         self._message = ""
         self.playback.sync(time.monotonic())  # composing may have taken a while
@@ -669,7 +663,8 @@ class Viewer:
         goes back, paused, to the frame shown before.
         """
         index = self.playback.file_index
-        recording, worlds = self.recordings[index], self.worlds[index]
+        recording = self.recordings[index]
+        worlds = self._choose(recording)
         previous = self.scene
         if previous.fits(recording, worlds):
             previous.show(recording, worlds)
@@ -680,7 +675,6 @@ class Viewer:
                 scene = ComposedScene(recording, worlds, self._cache())
             except RecordingError as error:
                 del self.recordings[index]  # the playback's playlist too
-                del self.worlds[index]
                 if index < self._shown_file:
                     self._shown_file -= 1
                 self.playback.file_index = self._shown_file
@@ -718,12 +712,44 @@ class Viewer:
         playback = self.playback
         return playback.file_index, playback.frame_index, playback.playing
 
-    def _highlight(self, copy: int) -> None:
-        """Highlight a drawn world, and keep it highlighted in the next files."""
-        if self.playback is not None:
-            self.scene.set_highlight(copy)
-            scene = self.scene
-            self._picked = int(scene.recording.world_ids[scene.worlds[scene.highlight]])
+    def _choose(self, recording: Recording, keep: int | None = None) -> np.ndarray:
+        """A file's worlds to draw: as the count or the ids choose them, with
+        ``keep`` in place of the best world of its band; by default the world
+        the user picked, when the file holds it."""
+        if keep is None and self._picked is not None:
+            picked = np.flatnonzero(recording.world_ids == self._picked)
+            keep = int(picked[0]) if len(picked) else None
+        return choose_worlds(recording, self.settings.worlds, self.ids, keep)
+
+    def _highlightable(self) -> np.ndarray:
+        """The worlds the highlight steps through, best first: every world of
+        the file, drawn or not, or only the worlds chosen by id."""
+        if self.ids is not None:
+            return self.scene.worlds
+        return np.argsort(-self.scene.recording.score, kind="stable")
+
+    def _step_highlight(self, direction: int) -> None:
+        """Highlight the next or previous world by rank, round from the end."""
+        if self.playback is None:
+            return
+        worlds = self._highlightable()
+        shown = self.scene.worlds[self.scene.highlight]
+        place = int(np.flatnonzero(worlds == shown)[0]) + direction
+        self._highlight(int(worlds[place % len(worlds)]))
+
+    def _highlight(self, world: int) -> None:
+        """Highlight a world of the file, and keep it highlighted in the next files.
+
+        A world that is not drawn takes the place of the best world of its
+        band, on the same composite, so the count drawn stays as set.
+        """
+        scene = self.scene
+        self._picked = int(scene.recording.world_ids[world])
+        worlds = self._choose(scene.recording, keep=world)
+        if not np.array_equal(worlds, scene.worlds):
+            scene.show(scene.recording, worlds, scene.frame_index)
+            self.renderer.show(scene)  # another picture, the same model
+        scene.set_highlight(int(np.flatnonzero(worlds == world)[0]))
 
     def _toggle_markers(self) -> None:
         self.renderer.markers_visible = not self.renderer.markers_visible
@@ -832,7 +858,7 @@ class Viewer:
         width, height = glfw.get_framebuffer_size(self.window)
         copy = self.renderer.copy_at(x, y, width, height, self._left)
         if copy is not None:
-            self._highlight(copy)
+            self._highlight(int(self.scene.worlds[copy]))
             self._dirty = True
 
     def _on_key(self, window, key: int, scancode: int, action: int, mods: int) -> None:

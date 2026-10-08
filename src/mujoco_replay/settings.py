@@ -1,12 +1,12 @@
 """The viewer's settings: what it draws and how finely, kept between runs.
 
 Two presets set the graphics at once. Quality draws shadows, reflections,
-anti-aliasing, and fine shapes at full resolution; Performance turns them all
-off and draws fewer pixels, for weak graphics cards. Changing one switch
-afterwards makes the mode "custom". The settings are saved as JSON in the
-user's settings folder, so that the next run starts where this one ended; a
-file that cannot be read, or a value out of place in it, falls back to the
-default.
+anti-aliasing, and fine shapes; Performance turns them all off, for weak
+graphics cards. Both draw at full resolution, which can be lowered to draw
+fewer pixels. Changing one switch afterwards makes the mode "custom". The
+settings are saved as JSON in the user's settings folder, so that the next
+run starts where this one ended; a file that cannot be read, or a value out
+of place in it, falls back to the default.
 """
 
 import json
@@ -21,6 +21,10 @@ from mujoco_replay.selection import DEFAULT_WORLDS, MAX_WORLDS
 RESOLUTIONS = (50, 75, 100)
 # How strongly the worlds other than the highlighted one are drawn.
 GHOST_STRENGTHS = ("hidden", "faint", "normal", "strong")
+# The saved file's version, raised when a default changes, so that a file of
+# an older version, or of none, takes the new default for what changed.
+# Version 2 (2026-10-08) made the ghosts faint and Performance full resolution.
+SETTINGS_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -42,7 +46,7 @@ PERFORMANCE = Graphics(
     reflections=False,
     antialiasing=False,
     fine_shapes=False,
-    resolution=75,
+    resolution=100,
 )
 PRESETS = {"quality": QUALITY, "performance": PERFORMANCE}
 
@@ -53,7 +57,7 @@ class Settings:
 
     graphics: Graphics = PERFORMANCE
     worlds: int = DEFAULT_WORLDS
-    ghosts: str = "normal"  # one of GHOST_STRENGTHS
+    ghosts: str = "faint"  # one of GHOST_STRENGTHS
     cache: bool = True
     frame_rate: bool = False
     panel: bool = True
@@ -104,6 +108,9 @@ def load_settings(path: Path | None = None) -> Settings:
     defaults = Settings()
     graphics = saved.get("graphics")
     graphics = graphics if isinstance(graphics, dict) else {}
+    if saved.get("version") != SETTINGS_VERSION:
+        saved.pop("ghosts", None)
+        graphics.pop("resolution", None)
     chosen = {
         item.name: graphics[item.name]
         for item in fields(Graphics)
@@ -119,7 +126,7 @@ def load_settings(path: Path | None = None) -> Settings:
     }
     if not 1 <= values.get("worlds", DEFAULT_WORLDS) <= MAX_WORLDS:
         values.pop("worlds")
-    if values.get("ghosts", "normal") not in GHOST_STRENGTHS:
+    if values.get("ghosts", defaults.ghosts) not in GHOST_STRENGTHS:
         values.pop("ghosts")
     return replace(defaults, graphics=replace(PERFORMANCE, **chosen), **values)
 
@@ -129,6 +136,7 @@ def save_settings(settings: Settings, path: Path | None = None) -> None:
     path = path or settings_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(asdict(settings), indent=2), encoding="utf-8")
+        saved = {"version": SETTINGS_VERSION, **asdict(settings)}
+        path.write_text(json.dumps(saved, indent=2), encoding="utf-8")
     except OSError:
         pass

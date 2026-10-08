@@ -4,6 +4,7 @@ import glfw
 import numpy as np
 import pytest
 
+from mujoco_replay import ui
 from mujoco_replay.recording import Recording, write_recording
 from mujoco_replay.settings import Settings, load_settings
 from mujoco_replay.viewer import Viewer
@@ -148,7 +149,7 @@ def test_the_next_file_highlights_its_best_world_unless_one_was_picked(
     ids = [10, 11, 12]
     first = make_recording(worlds=3, score=[3, 2, 1], world_ids=ids, seed=1)
     second = make_recording(worlds=3, score=[1, 2, 3], world_ids=ids, seed=2)
-    viewer = Viewer(window, Settings(worlds=3, cache=False), 0.3)
+    viewer = Viewer(window, Settings(worlds=1, cache=False), 0.3)
     viewer.load([first, second])
 
     def highlighted() -> int:
@@ -161,7 +162,56 @@ def test_the_next_file_highlights_its_best_world_unless_one_was_picked(
     viewer._act("next world")
     viewer.playback.previous_file()
     viewer._show_file()
-    assert highlighted() == 11  # the picked world, in the first file too
+    assert highlighted() == 11  # the picked world, drawn in the first file too
+    viewer.renderer.close()
+
+
+def test_the_highlight_reaches_every_world_each_in_place_of_its_bands_best(
+    window, make_recording
+):
+    ids = [10, 11, 12, 13]  # in rank order; two bands: 10 and 11, 12 and 13
+    recording = make_recording(worlds=4, score=[4, 3, 2, 1], world_ids=ids)
+    viewer = Viewer(window, Settings(worlds=2, cache=False), 0.3)
+    viewer.load([recording])
+    model = viewer.scene.model
+
+    def shown() -> tuple[list[int], int]:
+        scene = viewer.scene
+        drawn = scene.recording.world_ids[scene.worlds]
+        return drawn.tolist(), int(drawn[scene.highlight])
+
+    steps = []
+    for _ in range(4):
+        viewer._act("next world")
+        steps.append(shown())
+
+    assert steps == [([11, 12], 11), ([10, 12], 12), ([10, 13], 13), ([10, 12], 10)]
+    assert viewer.scene.model is model  # the same composite throughout
+    viewer.renderer.close()
+
+
+def test_a_world_whose_id_another_world_shares_can_be_highlighted_too(
+    window, make_recording
+):
+    recording = make_recording(worlds=3, score=[3, 2, 1], world_ids=[7, 7, 8])
+    viewer = Viewer(window, Settings(worlds=1, cache=False), 0.3)
+    viewer.load([recording])
+
+    viewer._act("next world")
+
+    assert viewer.scene.worlds.tolist() == [1]  # the second world, not the first
+    viewer.renderer.close()
+
+
+def test_with_one_world_drawn_the_panel_offers_the_highlight_but_no_ghosts(
+    window, make_recording
+):
+    viewer = Viewer(window, Settings(worlds=1, cache=False), 0.3)
+    viewer.load([make_recording(worlds=3)])
+
+    labels = [row.label for row in viewer._rows() if isinstance(row, ui.Stepper)]
+
+    assert "Highlight" in labels and "Ghosts" not in labels
     viewer.renderer.close()
 
 

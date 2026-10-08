@@ -15,6 +15,17 @@ overlay shows the facts of the run. The same scene can be rendered to a video.
 
 ## Status
 
+**Stage R9, any world on its own and new defaults, built (2026-10-08):**
+the panel's Highlight stepper and `B` step through every world of the file,
+not only the drawn ones; a world the count does not draw takes the place of
+the best world of its band, so that with one world drawn each world's run
+can be watched alone. The ghosts are faint, playback runs at 0.1 s per frame,
+and both graphics presets draw at full resolution by default; settings saved
+before keep their other values. A run of 1,024 worlds shows 32 because
+Centipede records 4 levels of 8 worlds per window (`record_levels`,
+`record_per_level` in its `[run]` section); this tool draws up to 128 of the
+worlds a file holds.
+
 **Stage R8, a program to start it from, built (2026-10-07):** the install
 also makes `MujocoReplay`, which opens the window without a console window,
 to start from the Start menu, the taskbar, or the desktop (see Use). It runs

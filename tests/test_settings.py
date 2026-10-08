@@ -5,6 +5,7 @@ import json
 from mujoco_replay.settings import (
     PERFORMANCE,
     QUALITY,
+    SETTINGS_VERSION,
     Settings,
     load_settings,
     save_settings,
@@ -35,12 +36,13 @@ def test_a_wrong_value_falls_back_to_its_default_alone(tmp_path):
     path = tmp_path / "settings.json"
     saved = {"worlds": 1000, "cache": "yes", "frame_rate": True, "ghosts": "bright"}
     saved["graphics"] = {"resolution": 60, "shadows": True}
+    saved["version"] = SETTINGS_VERSION
     path.write_text(json.dumps(saved))
 
     settings = load_settings(path)
 
     assert (settings.worlds, settings.cache, settings.frame_rate) == (16, True, True)
-    assert settings.ghosts == "normal"
+    assert settings.ghosts == "faint"
     assert settings.graphics.resolution == PERFORMANCE.resolution
     assert settings.graphics.shadows
 
@@ -50,3 +52,21 @@ def test_a_file_that_starts_with_a_byte_order_mark_is_read(tmp_path):
     path.write_text(json.dumps({"worlds": 32}), encoding="utf-8-sig")
 
     assert load_settings(path).worlds == 32
+
+
+def test_a_file_saved_under_the_first_defaults_takes_the_new_ghosts_and_resolution(
+    tmp_path,
+):
+    path = tmp_path / "settings.json"  # as saved before 2026-10-08: no version
+    saved = {"worlds": 64, "ghosts": "normal", "frame_rate": True}
+    saved["graphics"] = {"resolution": 75, "shadows": True}
+    path.write_text(json.dumps(saved))
+
+    settings = load_settings(path)
+
+    assert (settings.ghosts, settings.graphics.resolution) == ("faint", 100)
+    assert (settings.worlds, settings.frame_rate, settings.graphics.shadows) == (
+        64,
+        True,
+        True,
+    )

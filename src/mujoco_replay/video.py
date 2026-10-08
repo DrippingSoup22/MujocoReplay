@@ -19,7 +19,7 @@ import imageio.v2 as imageio
 import imageio_ffmpeg  # noqa: F401  (the encoder behind imageio's FFMPEG format)
 import numpy as np
 
-from mujoco_replay.playback import Playback
+from mujoco_replay.playback import DEFAULT_SECONDS_PER_FRAME, Playback
 from mujoco_replay.recording import Recording
 from mujoco_replay.render import SceneRenderer, offscreen_context
 from mujoco_replay.scene import ComposedScene
@@ -32,7 +32,7 @@ def export(
     recordings: list[Recording],
     worlds: list[np.ndarray],
     path: Path | str,
-    seconds_per_frame: float = 0.3,
+    seconds_per_frame: float = DEFAULT_SECONDS_PER_FRAME,
     fps: int = 30,
     size: tuple[int, int] = (1280, 720),
     hud: bool = True,

@@ -82,7 +82,7 @@ class ComposedScene:
         self.recording = recording
         self.worlds = np.asarray(worlds, dtype=np.int64)
         self.highlight = 0
-        self.ghosts = "normal"  # a strength of GHOST_ALPHAS
+        self.ghosts = "faint"  # a strength of GHOST_ALPHAS
         self.frame_index = 0
 
         spec = self._parse()
@@ -152,11 +152,14 @@ class ComposedScene:
             and len(worlds) == len(self.worlds)
         )
 
-    def show(self, recording: Recording, worlds: np.ndarray) -> None:
-        """Show another recording that ``fits``, from its first frame."""
+    def show(
+        self, recording: Recording, worlds: np.ndarray, frame_index: int = 0
+    ) -> None:
+        """Show another recording that ``fits``, or other worlds of this one,
+        as many as before, from ``frame_index``."""
         self.recording = recording
         self.worlds = np.asarray(worlds, dtype=np.int64)
-        self.set_frame(0)
+        self.set_frame(frame_index)
 
     def set_highlight(self, copy: int) -> None:
         """Draw copy ``copy`` in colour and the others as ghosts."""

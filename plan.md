@@ -1,9 +1,10 @@
 # Development plan
 
-This plan builds MujocoReplay in eight stages; the user asked for the sixth on
+This plan builds MujocoReplay in nine stages; the user asked for the sixth on
 2026-10-07, once the first five were built, for the seventh, a full review,
-once the sixth was, and for the eighth, a program to start it from, once the
-seventh was. It is paired with Stage 7 of the
+once the sixth was, for the eighth, a program to start it from, once the
+seventh was, and for the ninth, any world on its own and new defaults, on
+2026-10-08. It is paired with Stage 7 of the
 sibling `Centipede` project (`../Centipede/plan.md`), which records the files
 this tool replays. The format is fixed in
 [docs/recording-format.md](docs/recording-format.md) and the design in
@@ -345,6 +346,54 @@ recording given to it, and an unreadable file and a missing display each
 ended in the text the message box would show. The message box and
 `MujocoReplay.exe` exist only on Windows, so the user checks them.
 
+### R9 — Any world on its own, and new defaults
+
+Asked by the user on 2026-10-08, after R8: the highlight becomes a switch over
+every world of the run, so that each world's run can be watched on its own
+even when fewer worlds are drawn than the file holds; faint ghosts, 0.1 s per
+frame, and full resolution become the defaults; and why a run of more than
+32 worlds shows 32, and how many worlds the tool could load.
+
+**Builds:** `choose_worlds(..., keep=index)`, which draws a world in place
+of the best world of its band; the Highlight stepper and `B` stepping through
+every world of the file, drawn or not, the stepper shown whenever the file
+holds more than one world; the new defaults, and a version in the settings
+file, so that a file saved under the first defaults takes the new ghosts and
+resolution once; measurements of composing and drawing beyond 128 worlds.
+
+**Done when:** tests show the kept world drawn in its band, the highlight
+reaching every world on the same composite with the count unchanged, the
+panel offering the highlight with one world drawn, the picked world drawn in
+the next file, and an old settings file taking the new defaults; the window,
+driven under a virtual display, starts with the new defaults and shows the
+worlds of a stand-in recording one at a time.
+
+**Result (2026-10-08):** built; the user's check pending. 96 tests pass (26
+draw and skip without OpenGL); one of them holds a fault found in review: a
+file whose worlds share an id, which the reader accepts, crashed the window
+when the highlight stepped onto the second, so `keep` is an index into the
+file, not an id. The window was driven under a virtual display with a
+32-world stand-in recording simulated from Centipede's model and a settings
+file in the first defaults' format (normal ghosts, 75 %, 32 worlds): it
+opened at 0.1 s per frame, with faint ghosts, at 100 %, still with 32 worlds;
+with one world drawn, the Highlight stepper, `B`, and Shift+B showed ranks 2,
+4, and 3 alone; back at 4 worlds, rank 3 stayed highlighted among 3 ghosts,
+and a double-click on a ghost highlighted rank 25. A 1,024-world stand-in
+of 256 frames (76 MB) read in 0.08 s and stepped the same way.
+
+The 32 worlds come from Centipede, which records `record_levels ×
+record_per_level` = 4 × 8 worlds of a window by default, out of the 1,024 it
+trains; this tool draws up to 128 of a file's worlds, and a file may hold any
+number. For drawing more at once, measured with Centipede's model: composing
+took 0.4, 5.3, 22, and 89 s for 32, 128, 256, and 512 copies, four times as
+long for each doubling, and 1,024 copies overflowed the composite's 4 MiB of
+working memory; issuing one frame's draws took 12, 38, 106, 164, and 392 ms
+for 32 to 1,024 worlds with Mesa's no-op driver, work on the processor that a
+faster graphics card does not remove. Posing one model per world and adding
+its shapes to the scene (`mjv_addGeoms`) instead of composing took 11 ms a
+frame for 1,024 worlds, with no wait to open. How many worlds to record and
+draw is left to the user's decision.
+
 ## Status
 
 | Stage | Status |
@@ -357,3 +406,4 @@ ended in the text the message box would show. The message box and
 | R6 — The application: panel, settings, and performance | Built (2026-10-07); the user's check on the MX330 pending |
 | R7 — Full review | Done (2026-10-07); the user's check on the MX330, with Centipede's own recordings, pending |
 | R8 — The program | Built (2026-10-07); the user's check on Windows pending |
+| R9 — Any world on its own, and new defaults | Built (2026-10-08); the user's check pending |
