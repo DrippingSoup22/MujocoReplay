@@ -762,28 +762,31 @@ settings must send to the GeForce.
 
 ## The executable
 
-On Windows the tool also comes as programs that need no Python: a folder
-that PyInstaller builds from `packaging/MujocoReplay.spec`, holding
+On Windows the tool also comes as a program that needs no Python:
 `MujocoReplay.exe`, the window without a console, as the program above
-opens it, and `MujocoReplay-console.exe`, the same command with a console
-window, for a terminal and for videos, with `_internal` beside them, where
-Python, NumPy, MuJoCo, GLFW, tkinter, imageio, and ffmpeg sit:
-1,093 files and 186 MB, 72 MB zipped. The user asked for it on 2026-10-09,
-once the program had served: a program pip makes needs its environment,
-while the folder runs on any Windows machine with a graphics driver.
-PyInstaller's single-file mode was left out: it unpacks itself into a
-temporary folder at every start, which for this size takes seconds, and the
-two programs would each carry a copy. The two are built from one recipe and
-share the folder, as pip makes both from one install; only the console tells
-them apart, and the icon, which only the window program carries. The
-console program was first `mujoco-replay.exe`, the command's name, with the
-icon too: with the extensions Windows hides, the two read as `MujocoReplay`
-and `mujoco-replay` under one icon, and a double-click on the console
-program opens its console window, empty, beside the window, which is what
-the user met at the first start of the zip. Its name now says what it is,
-and it looks like no application.
-In a folder, the program is the process that draws, so Windows' graphics
-settings take `MujocoReplay.exe` itself.
+opens it, in a folder that PyInstaller builds from
+`packaging/MujocoReplay.spec`, with `_internal` beside it, where Python,
+NumPy, MuJoCo, GLFW, tkinter, imageio, and ffmpeg sit: about 1,090 files
+and 186 MB, 72 MB zipped. The user asked for it on 2026-10-09, once the
+program had served: a program pip makes needs its environment, while the
+folder runs on any Windows machine with a graphics driver. PyInstaller's
+single-file mode was left out: it unpacks itself into a temporary folder at
+every start, which for this size takes seconds. In a folder, the program is
+the process that draws, so Windows' graphics settings take
+`MujocoReplay.exe` itself.
+
+The folder held a second program at first: the command with a console
+window, for a terminal and for videos, since a program without a console
+cannot print into the terminal that started it, which does not wait for it
+either. Named `mujoco-replay.exe` and carrying the icon too, it read like
+the window program with the extensions Windows hides, and the user's first
+start of the zip opened its console window, empty, beside the window;
+renamed `MujocoReplay-console.exe`, it still opened the same window, and the
+user saw no point in two programs. On 2026-10-09 the user chose one: the
+command line, `render` included, comes with the Python package, a
+dependency the user accepts for it. The program still takes the command's
+arguments, and prints to a caller that takes its output, as the check below
+does.
 
 The recipe adds what PyInstaller's analysis does not find on its own.
 MuJoCo loads its library and its plugins from its package's folder, and
@@ -791,48 +794,47 @@ GLFW's Python package its library, with the Visual C++ 2013 runtime it
 needs on Windows, from its own, so both are collected in place; imageio
 reads its version from its package's metadata, which is copied. PyInstaller
 brings the newer Visual C++ runtime itself. The icon is written from
-`icon.py` into the build folder and built into both programs, so that
+`icon.py` into the build folder and built into the program, so that
 Explorer, the taskbar, and a shortcut show it without an icon file.
 
 Two things differ in a frozen program. `sys.executable` is the program, not
 Python, so the file picker cannot be started with `python -c`: the window
 runs the program again with `--pick-files` ([The application](#the-application)),
-which the command takes before reading any other option, and the program
-without a console passes it on without its message box, since the window
-shows why a picker failed. And the program without a console has no error
-stream, as under `pythonw`, which the launcher already handles. The settings
-and the cache stay in the user's folders, so the executable and an installed
-copy share them. The window gives itself no name on the taskbar
-(`MujocoReplay.Viewer`, which Python's process takes): the taskbar groups the
-executable by itself and shows the icon it carries, and a name of its own
-would keep the running window apart from the program pinned to the taskbar,
-two buttons for one program.
+which the command takes before reading any other option, and the launcher
+passes it on without its message box, since the window shows why a picker
+failed. And the program has no error stream, as under `pythonw`, which the
+launcher already handles. The settings and the cache stay in the user's
+folders, so the executable and an installed copy share them. The window
+gives itself no name on the taskbar (`MujocoReplay.Viewer`, which Python's
+process takes): the taskbar groups the executable by itself and shows the
+icon it carries, and a name of its own would keep the running window apart
+from the program pinned to the taskbar, two buttons for one program.
 
 GitHub builds the folder on its Windows machines with the workflow
-`.github/workflows/executable.yml`, at each push to `main` (and, while it is
-being built, to the `claude/executable` branch) or when started by hand: it
-installs the package with its `video` extra and PyInstaller, pinned to
-6.22.3, builds, zips the folder, runs the tests, and checks the programs
-extracted from the zip with `packaging/check.py`. The check runs them as a
-person would, on a recording of its own, an orange box in three worlds: the
-help; a video, whose every frame must show the box; each program's kind,
-read from its header, windowed or console; the window program started as a
-double-click starts it, with no console window appearing, the icon it
-carries and its window's icons matching `icon.draw` pixel for pixel, its
-screenshot showing the box, and closed with its close button and Y; the
-console program started the same way, whose console window must appear, so
-that the check is known to see one; and the file picker, opened and
-cancelled. The screenshots of the window and the taskbar are kept, and
-printed in the log as base64 too, for a reader who cannot download a run's
-artifacts. The machines have no graphics card, so the tests and the
-check borrow Mesa's software OpenGL, its `opengl32.dll` and
-`libgallium_wgl.dll` from `mesa-dist-win` put next to the programs of a copy
+`.github/workflows/executable.yml`, at each push to `main` or when started
+by hand: it installs the package with its `video` extra and PyInstaller,
+pinned to 6.22.3, builds, zips the folder, runs the tests, and checks the
+program extracted from the zip with `packaging/check.py`. The check runs it
+as a person would, on a recording of its own, an orange box in three worlds:
+the help and a video, whose every frame must show the box, with the
+program's output taken; the program's kind, read from its header, which
+must be windowed; the program started as a double-click starts it, with no
+console window appearing, the icon it carries and its window's icons
+matching `icon.draw` pixel for pixel, its screenshot showing the box, and
+closed with its close button and Y; and the file picker, opened and
+cancelled. A console program started the same way, Python itself, must
+open a console window that the check sees, so that its seeing none beside
+the window means something. The screenshots of the window and the taskbar
+are kept, and printed in the log as base64 too, for a reader who cannot
+download a run's artifacts. The machines have no graphics card, so the
+tests and the check borrow Mesa's software OpenGL, its `opengl32.dll` and
+`libgallium_wgl.dll` from `mesa-dist-win` put next to the program in a copy
 of the folder, with `GALLIUM_DRIVER=llvmpipe`; the zip never holds them,
 and the workflow fails if the build does. The zip and the screenshots are
-kept as the run's artifacts. The programs are not signed, so Windows'
+kept as the run's artifacts. The program is not signed, so Windows'
 SmartScreen warns at the first start of a downloaded copy. The same recipe
-builds a Linux folder, which the container used to check the programs
-before Windows did; only the Windows folder is published.
+builds a Linux folder, which the container used to check the program before
+Windows did; only the Windows folder is published.
 
 ## Dependencies
 

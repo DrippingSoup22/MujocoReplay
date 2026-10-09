@@ -1,170 +1,135 @@
-# MujocoReplay
+<p align="center">
+  <img src="docs/images/icon.png" width="96" alt="">
+</p>
 
-A small tool that replays recorded poses of any MuJoCo model: many worlds of
-the same model drawn on top of each other in one scene, with the best world in
-its natural colours and the others as faint grey ghosts. It is made for
-watching what reinforcement-learning agents do during training without slowing
-the training down: the training only records positions, and this tool draws
-them later, as slowly as a person needs.
+<h1 align="center">MujocoReplay</h1>
 
-It does not simulate anything. It reads a self-contained recording file, builds
-one scene with one copy of the moving bodies per recorded world, sets every
-copy's joints from the recorded positions frame by frame, and draws. The camera
-is free, playback can be paused and slowed to a few seconds per step, and an
-overlay shows the facts of the run. The same scene can be rendered to a video.
+<p align="center">
+  Watch what your MuJoCo agents do while they train.<br>
+  Replay recorded runs of any model, many worlds at once, as slowly as you like.
+</p>
+
+![MujocoReplay showing sixteen worlds of a centipede: the best one in colour, walking toward its target, the other fifteen as grey ghosts](docs/images/window.png)
+
+## What it does
+
+Training only records positions. MujocoReplay draws them later, so watching
+never slows the training down.
+
+- **Any MuJoCo model.** A recording carries its own model: nothing to set up.
+- **Many worlds in one scene.** The best world in its own colours, the others
+  as grey ghosts, so the whole population shows at a glance.
+- **Tabs.** Open several recordings and switch between them at the same
+  frame, such as the start and the end of a training run.
+- **Your pace.** Pause, step, slow down to seconds per frame, loop a file, or
+  let it go on with the next tab by itself.
+- **Videos.** The same scene, written to an MP4 file.
+
+<p align="center">
+  <img src="docs/images/replay.gif" width="600" alt="Sixteen centipedes walking toward a target; the best one in colour, the others as ghosts">
+  <br>
+  <em>The Centipede model from the sibling project, in recordings simulated for these pictures.</em>
+</p>
+
+## Get it
+
+### Windows: one program, nothing to install
+
+1. Download **MujocoReplay-windows.zip** from the latest run of the
+   [Windows executable](https://github.com/DrippingSoup22/MujocoReplay/actions/workflows/executable.yml)
+   workflow: open the run, and the zip is under **Artifacts** (sign in to
+   GitHub first).
+2. Unzip it anywhere, and keep the folder whole.
+3. Double-click **MujocoReplay.exe**.
+
+The first time, Windows may say *Windows protected your PC*, since the
+program is not signed: click **More info**, then **Run anyway**. On a laptop
+with two graphics chips, add `MujocoReplay.exe` under Settings › System ›
+Display › Graphics, and choose **High performance**.
+
+### With Python: the command line and videos
+
+The command line, and with it videos, needs Python 3.11 to 3.14. From a
+clone of this repository:
+
+```powershell
+python -m pip install -e ".[video]"
+mujoco-replay                                   # the window
+mujoco-replay render run.npz --out replay.mp4   # a video
+```
+
+## Open recordings
+
+Click **Open** (or press **O**) and pick one or more `.npz` files, or drop
+them onto the window or onto the program. Each file opens in a tab of its
+own, and switching tabs keeps the frame, so two runs compare moment by
+moment:
+
+| `cycle_0016` | `cycle_0304` |
+| :---: | :---: |
+| ![The early recording: the sixteen centipedes scattered, their legs flailing](docs/images/tabs-early.png) | ![The later recording at the same frame: the best centipede walking into the target's ring](docs/images/tabs-later.png) |
+
+## Keys
+
+| Key | Does |
+| --- | --- |
+| **Space** | Play, pause |
+| **← →** | Step back, step forward |
+| **↑ ↓** | Faster, slower |
+| **N**, **P** | Next, previous tab |
+| **B**, double-click | Highlight another world |
+| Drag, right-drag, wheel | Rotate, pan, zoom |
+| **V** | Reset the view |
+| **L** | Loop the file |
+| **Tab** | Hide the panel |
+| **F1** | Every key |
+
+The panel on the left holds the rest: how many worlds to draw, how strong
+the ghosts are, the graphics (Quality or Performance), and what the overlay
+shows. Settings are remembered between runs.
+
+## Record your own runs
+
+A recording is one `.npz` file with the model and every world's positions,
+frame by frame. With the package installed, training code writes one in a
+few lines:
+
+```python
+import mujoco
+from mujoco_replay.recording import Recording, write_recording
+
+model_xml = mujoco.MjSpec.from_file("model.xml").to_xml()  # the whole model
+# qpos: every world's positions at every frame, shape (frames, worlds, nq)
+write_recording("run.npz", Recording(model_xml, frame_seconds, qpos))
+```
+
+Scores, targets and other markers, events, and the run's settings are
+optional; [docs/recording-format.md](docs/recording-format.md) lists them all.
 
 ## Status
 
-**Stage R13, an executable, built (2026-10-09):** on Windows the tool also
-comes as programs that need no Python installed: a folder with
-`MujocoReplay.exe`, the window, and `MujocoReplay-console.exe`, the same
-program with a console window, which GitHub builds and checks on its own
-Windows machines (see The executable). The window program carries the icon
-itself, so a shortcut or a pin needs no icon file, and the graphics setting
-for the GeForce takes the program directly. The user's first start of the
-zip met an empty terminal beside the window: the console program, then
-`mujoco-replay.exe`, carried the same icon under a name that reads the same,
-and opens a console by design. It is renamed and carries no icon now, and
-the check on GitHub's machines, which have no graphics card, starts the
-window program as a double-click does: no console window opened, its icons
-matched the drawing pixel for pixel, and the taskbar showed the icon. The
-user's second check, on a real display, is pending.
-
-**Stage R12, an icon, Loop, and Play next, built (2026-10-09):** the window
-has an icon of its own, in pixel art: one figure in three worlds, two in
-ghost grey and the best in orange, on a checkered floor, with a play sign,
-as the window replays any model; on Windows the taskbar shows it instead of
-Python's, and a shortcut takes it from the
-file that `python -m mujoco_replay.icon` writes (see Use). The panel's Loop
-starts the file again when it ends, and Play next goes on with the next tab
-from its start, so that a run's recordings play one after the other by
-themselves; both together go round all the tabs, and both are remembered.
-The file picker already took several files at once, with Ctrl+click or
-Shift+click, and now says so in its title.
-
-**Stage R11, tabs, built (2026-10-09):** recordings open in tabs along the
-top of the window, one per file, as an editor shows its files, so that the
-start and the end of a run's training can be compared without opening them
-again. Opening more files adds tabs instead of replacing what is open; a
-click on a tab, or N, P, and Ctrl+Tab, shows its file at the same frame, with
-the highlighted world kept, and the camera too for files of one model, so
-that two files compare moment by moment; a tab's `x`, Ctrl+W, or the panel's
-Close all closes tabs. Each
-tab plays on its own: the end of a file no longer runs on into the next,
-which only a video's playlist still does. There is no limit on the number of
-tabs; each open file stays in memory at about its size on disk.
-
-**Stage R10, rings and radii that change, built (2026-10-08):** a marker
-can be drawn as a ring, a circle lying flat around it, and its radius can
-change from frame to frame and differ between worlds. Centipede asked for
-it so that the user sees each episode's range around the target: the
-highlighted world's ring shows when its head leaves the range. Files that
-use either are format version 2, which copies of this tool from before
-refuse; pull every copy, including the GPU desktop's, before Centipede
-writes them.
-
-**Stage R9, any world on its own and new defaults, built (2026-10-08):**
-the panel's Highlight stepper and `B` step through every world of the file,
-not only the drawn ones; a world the count does not draw takes the place of
-the best world of its band, so that with one world drawn each world's run
-can be watched alone. The ghosts are faint, playback runs at 0.1 s per frame,
-and both graphics presets draw at full resolution by default; settings saved
-before keep their other values. Centipede's recordings held 32 worlds, 4
-levels of 8; at the user's request it now records every world by default
-(`record_worlds` in its `[run]` section), so a run's files hold all its
-worlds, while earlier runs keep 32 per file. This tool draws up to 128 of
-the worlds a file holds.
-
-**Stage R8, a program to start it from, built (2026-10-07):** the install
-also makes `MujocoReplay`, which opens the window without a console window,
-to start from the Start menu, the taskbar, or the desktop (see Use). It runs
-the `mujoco-replay` command, unchanged, and says in a message box why it
-cannot start, if it cannot. `MujocoReplay.exe` awaits the user's check on
-Windows.
-
-**Stage R7, a full review, done (2026-10-07):** five independent reviews and
-a visual one went through the whole application, and their findings are
-fixed: damaged and half-written files, unusual models, a diverged world, the
-cache, the file picker, the shadows and reflections of Quality mode, the
-panel at a laptop's display scaling, and many smaller points of interaction.
-A few settings were added where a finding asked for them: the ghosts'
-strength, Reset and Top views, double-click to highlight a world, clicks on
-the timeline, and the list of keys on F1. The tool is an application: it
-opens on an empty world, takes recordings from a file picker, from files
-dropped onto it, or from the command line, and offers a side panel with its
-own settings, remembered between runs; `mujoco-replay render` writes a video.
-Everything was verified in a container without a GPU, on offscreen frames and
-with the window driven by synthetic input; it awaits the user's check on a
-real display, on a weak graphics card (a GeForce MX330), with Centipede's own
-recordings.
+**Stage R13, the Windows executable (2026-10-09):** one program that needs
+no Python, which the user has run on Windows; GitHub builds it and checks it
+on its own Windows machines at every push to `main`. Every stage, from the
+recording format to the executable, is described in [plan.md](plan.md).
 
 ## Documentation
 
 | Document | Describes |
 | --- | --- |
-| [`plan.md`](plan.md) | The stages that build the tool, each with its checks |
-| [`docs/recording-format.md`](docs/recording-format.md) | The recording file: every key, its shape and meaning, and the writer and reader |
-| [`docs/design.md`](docs/design.md) | How the tool is built: modules, scene composition, world selection, playback, the tabs, overlay, camera, graphics settings, the application and its panel, the cache, video, the executable |
-| [`AGENTS.md`](AGENTS.md) | Working rules for coding assistants |
+| [plan.md](plan.md) | The stages that built the tool, each with its checks and results |
+| [docs/recording-format.md](docs/recording-format.md) | The recording file: every key, its shape and meaning |
+| [docs/design.md](docs/design.md) | How the tool works inside: the scene, playback, tabs, overlay, camera, graphics, panel, video, and the executable |
+| [AGENTS.md](AGENTS.md) | Working rules for coding assistants |
 
-## Project folders
+<details>
+<summary><b>More: development setup, the installed program, the tests, building the executable</b></summary>
 
-```text
-MujocoReplay/
-├─ .github/workflows/   The Windows executable, built and checked by GitHub
-├─ docs/                Format and design documents
-├─ packaging/           PyInstaller's recipe for the executable, and the check of a built folder
-├─ src/mujoco_replay/   The package: recording format, selection, scene, playback, renderer, settings, panel, viewer, video, command, program, icon
-├─ tests/               Automated tests, one file per module; shared helpers in conftest.py
-└─ archive/             Superseded material; local only
-```
+### Development setup
 
-## The executable
-
-On Windows the tool needs no Python at all: download
-`MujocoReplay-windows.zip` from the latest successful run of the
-[Windows executable](https://github.com/DrippingSoup22/MujocoReplay/actions/workflows/executable.yml)
-workflow (open the run; the zip is under Artifacts at the bottom of its
-page, for anyone signed in to GitHub, and is kept 90 days), unzip it
-anywhere, and start `MujocoReplay.exe` in the `MujocoReplay` folder, the
-program with the icon. It is the window as Use describes it, with the same
-keys, panel, and remembered settings, which it shares with an installed
-copy. `MujocoReplay-console.exe` beside it, without an icon, is the same
-program with a console window, for a terminal, where it prints what it does
-and why it fails, and for videos
-(`.\MujocoReplay-console.exe render RECORDING.npz --out replay.mp4`); started
-with a double-click, it opens a console window beside the window, as it is
-meant to. Keep the folder whole: the programs run from the files in
-`_internal` next to them.
-
-The programs are not signed, so the first start may bring Windows' "Windows
-protected your PC": More info, then Run anyway. They carry the icon, so a
-shortcut (right-click `MujocoReplay.exe`, Show more options, Send to,
-Desktop) or a pin to the taskbar shows it with nothing more. Files dropped
-onto the program or its shortcut open in tabs, and recordings open with a
-double-click once a recording's Open with, Choose another app, is pointed at
-`MujocoReplay.exe` with Always. On a laptop with two graphics chips, add
-`MujocoReplay.exe` in Settings, System, Display, Graphics, and choose High
-performance.
-
-GitHub builds the zip at every push to `main` (and, for now, to the
-`claude/executable` branch), or when Run workflow is pressed on the
-workflow's page. To build the folder yourself, in the environment of Setup:
-
-```powershell
-python -m pip install pyinstaller==6.22.3
-python -m PyInstaller --noconfirm packaging/MujocoReplay.spec
-python packaging/check.py dist\MujocoReplay
-```
-
-The second line writes `dist\MujocoReplay` in about a minute; the third
-runs the built programs on a test recording and says what it saw.
-
-## Setup
-
-Python 3.11 to 3.14 (MuJoCo 3.12.0, which this tool and Centipede pin, has no
-wheels for newer versions). The tool can share the Python environment of the
-sibling projects; from this folder, in PowerShell:
+The tool can share the Python environment of the sibling projects, or have
+one of its own (`py -3.12 -m venv .venv`, then `.venv\Scripts\Activate.ps1`).
+From this folder, in PowerShell:
 
 ```powershell
 & "$HOME\.venvs\Centipede\Scripts\Activate.ps1"
@@ -172,70 +137,17 @@ python -m pip install -e ".[video,dev]"
 python -m pytest
 ```
 
-or have an environment of its own (`py -3.12 -m venv .venv`, then
-`.venv\Scripts\Activate.ps1` and the same `pip install`). `video` adds the
-packages that write MP4 files; `dev` adds the test tools. The viewer itself
-needs only MuJoCo, NumPy, and GLFW. Use the native Windows environment for the
-window: OpenGL through WSL is unreliable on this machine.
+`video` adds the packages that write MP4 files, and `dev` the test tools; the
+window itself needs only MuJoCo, NumPy, and GLFW. MuJoCo 3.12.0, which this
+tool and Centipede pin, has wheels for Python 3.10 to 3.14 only. Use the
+native Windows environment for the window: OpenGL through WSL is unreliable.
 
-On a laptop with two graphics chips, Windows may run Python on the
-processor's own chip instead of the GeForce. To use the GeForce, open
-Settings, System, Display, Graphics, add the base Python's `python.exe`, and
-for the program (see Use) its `pythonw.exe` from the same folder, and choose
-High performance for each: an environment's own `python.exe` and
-`pythonw.exe` only start these. This prints where the base `python.exe` is:
+### The installed program
 
-```powershell
-python -c "import sys; print(sys._base_executable)"
-```
-
-The frame-rate readout shows the difference.
-
-The tests that draw need OpenGL; without it they skip and say why. On a Linux
-machine without a display, `xvfb-run -a python -m pytest` runs them on a
-virtual display. MuJoCo can also draw there through EGL or OSMesa
-(`MUJOCO_GL=egl`), which the video's offscreen drawing supports through
-MuJoCo's own context helper; that path has not been tried yet.
-
-## Use
-
-With the environment active:
-
-```powershell
-mujoco-replay
-mujoco-replay RECORDING.npz [RECORDING2.npz ...]
-mujoco-replay runs\RUN\recordings\*.npz --mode performance --worlds 16
-mujoco-replay render RECORDING.npz --out replay.mp4
-```
-
-(`python -m mujoco_replay` is the same command.) Without files the window
-opens empty: open recordings with the panel's Open button (or `O`, or the `+`
-after the tabs), where Ctrl+click or Shift+click picks several, or drop
-`.npz` files onto it. Each file opens in a tab of its own along the top, in
-the order of their names, and opening more adds tabs: a click on a tab, or
-N, P, and Ctrl+Tab, shows its file at the same frame, so that the start and
-the end of a run compare moment by moment, and a tab's `x`, Ctrl+W, or Close
-all closes them. The panel's Loop starts a file again when it ends (or `L`),
-and Play next goes on with the next tab, to watch a run's recordings one
-after the other; both together go round all the tabs. The panel on the left
-sets everything else: playback, how many
-worlds are drawn and how strongly the ghosts show, the highlighted world, the
-view, the graphics (Quality, Performance, or single switches), and the
-options; Tab hides it. On a weak graphics card, start in Performance mode
-with 16 worlds, turn on the frame-rate readout, and change one switch at a
-time: the readout says how long a frame takes to draw. Space plays and
-pauses, the arrows step and change speed, a double-click highlights a world,
-a click on the timeline jumps there, V resets the view, F1 lists every key,
-and Q or Esc asks before quitting; [`docs/design.md`](docs/design.md) describes every key, option, and
-switch.
-
-The install also makes `MujocoReplay`, a program that opens the same window
-without a console window. pip puts it in the environment, not in this
-folder: on Windows, `MujocoReplay.exe` in the environment's `Scripts` folder
-(`$HOME\.venvs\Centipede\Scripts` for the shared environment above). An
-environment installed before the program existed needs the `pip install`
-above once more, with the window closed. Then, with the environment active,
-`MujocoReplay` starts it, and this puts a shortcut to it on the desktop:
+The install also makes `MujocoReplay`, the same window without a console
+window, in the environment's `Scripts` folder. With the environment active,
+this puts a shortcut to it, with the icon, on the desktop; right-click the
+shortcut to pin it:
 
 ```powershell
 $desktop = [Environment]::GetFolderPath("Desktop")
@@ -246,13 +158,43 @@ $link.IconLocation = (python -m mujoco_replay.icon)
 $link.Save()
 ```
 
-The icon line writes the application's icon, `MujocoReplay.ico`, next to
-the settings and points the shortcut at it; running the block again gives
-an existing shortcut the icon. Right-click the shortcut to pin it to Start
-or the taskbar. The program
-opens the empty world, or the files dropped onto it or onto its shortcut,
-with the same remembered settings. It runs this folder's code, so a pull
-needs no new install; only a change to `pyproject.toml` needs the
-`pip install` again. When it cannot start, a message box says why; if
-nothing appears at all, run `mujoco-replay` in the terminal, which prints
-the reason.
+It runs this folder's code, so a pull needs no new install. When it cannot
+start, a message box says why. On a laptop with two graphics chips, give the
+base Python's `python.exe` and `pythonw.exe` High performance in Windows'
+graphics settings; `python -c "import sys; print(sys._base_executable)"`
+prints where they are.
+
+### The tests
+
+The tests that draw need OpenGL; without it they skip and say why. On Linux
+without a display, `xvfb-run -a python -m pytest` runs them on a virtual
+display.
+
+### Building the executable
+
+GitHub builds the zip at every push to `main`, or when **Run workflow** is
+pressed on the workflow's page. To build it by hand, in the development
+environment:
+
+```powershell
+python -m pip install pyinstaller==6.22.3
+python -m PyInstaller --noconfirm packaging/MujocoReplay.spec
+python packaging/check.py dist\MujocoReplay
+```
+
+The second line writes `dist\MujocoReplay` in about a minute; the third runs
+the program on a test recording and says what it saw.
+
+### Project folders
+
+```text
+MujocoReplay/
+├─ .github/workflows/   The Windows executable, built and checked by GitHub
+├─ docs/                Format and design documents, and the pictures above
+├─ packaging/           PyInstaller's recipe, and the check of a built folder
+├─ src/mujoco_replay/   The package: format, selection, scene, playback, renderer, settings, panel, viewer, video, command, program, icon
+├─ tests/               Automated tests, one file per module
+└─ archive/             Superseded material; local only
+```
+
+</details>

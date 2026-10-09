@@ -1,28 +1,27 @@
-"""Check a built folder of the programs the way a person would use them.
+"""Check a built folder of the program the way a person would use it.
 
     python packaging/check.py FOLDER [--screenshots FOLDER] [--print-screenshots]
 
 ``FOLDER`` is the folder PyInstaller built, ``dist/MujocoReplay``. The checks
-run the programs on a recording of their own, an orange box in three worlds:
+run the program on a recording of their own, an orange box in three worlds:
 
-- ``MujocoReplay-console --help`` prints the command's help;
-- ``MujocoReplay-console render`` writes a video, whose every frame shows the
-  box;
-- on Windows, ``MujocoReplay`` is a windowed program and carries the icon,
-  while ``MujocoReplay-console`` is a console program; ``MujocoReplay``,
-  started as a double-click starts it, opens its window on the recording with
-  no console window beside it, carries the icon, shows the box, and quits
-  when asked, as its close button and Y do; ``MujocoReplay-console``, started
-  the same way, does open a console window, which shows that the check for
-  one sees it; and the file picker opens and closes.
+- ``MujocoReplay --help`` prints the command's help, and ``MujocoReplay
+  render`` writes a video whose every frame shows the box; the program has no
+  console window, but what it prints reaches a caller that takes its output;
+- on Windows, ``MujocoReplay`` is a windowed program and carries the icon;
+  started as a double-click starts it, it opens its window on the recording
+  with no console window beside it, carries the icon, shows the box, and
+  quits when asked, as its close button and Y do; a console program started
+  the same way, Python itself, opens a console window, which shows that the
+  check for one sees it; and the file picker opens and closes.
 
-The screenshots of the windows, the taskbar, and the picker go into
-``--screenshots``; ``--print-screenshots`` also prints the windows' and the
+The screenshots of the window, the taskbar, and the picker go into
+``--screenshots``; ``--print-screenshots`` also prints the window's and the
 taskbar's in the output, as base64 text, for a reader who cannot download
 them. Each check prints what it saw, and the first that fails stops the run
 with why. The windows need a desktop with OpenGL: GitHub's Windows machines
 have no graphics card, so the workflow checks a copy of the folder with
-Mesa's software OpenGL next to the programs, never the zip. Run this with a
+Mesa's software OpenGL next to the program, never the zip. Run this with a
 Python that has the package and its video extra, which write the recording
 and read the video.
 """
@@ -62,8 +61,8 @@ EXE = ".exe" if sys.platform == "win32" else ""
 WAIT_SECONDS = 180  # a first start on a new machine is slow
 # The fewest of the box's pixels a video frame, and the window, must show.
 FRAME_PIXELS, WINDOW_PIXELS = 100, 1000
-# Windows' subsystems: a program that opens windows, and one that needs a console.
-WINDOWED, CONSOLE = 2, 3
+# Windows' subsystem of a program that opens windows and needs no console.
+WINDOWED = 2
 # The window classes of a console window: the console host's, Windows Terminal's.
 CONSOLES = ("ConsoleWindowClass", "CASCADIA_HOSTING_WINDOW_CLASS")
 # Window messages: the close button's, and a typed character's.
@@ -80,26 +79,24 @@ def main(arguments: list[str] | None = None) -> int:
     parser.add_argument("--screenshots", type=Path, default=Path("screenshots"))
     parser.add_argument("--print-screenshots", action="store_true")
     options = parser.parse_args(arguments)
-    built = options.folder.resolve()  # the programs run in a folder of their own
-    command = built / f"MujocoReplay-console{EXE}"
-    window_program = built / f"MujocoReplay{EXE}"
+    # The program runs in a folder of its own, so its path must hold anywhere.
+    program = options.folder.resolve() / f"MujocoReplay{EXE}"
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
         folder = Path(temporary)
         recording = folder / f"{TITLE}.npz"
         write_check_recording(recording)
         try:
-            for program in (command, window_program):
-                if not program.is_file():
-                    raise CheckFailed(f"{program} is missing")
-            check_help(command, folder)
-            check_render(command, recording, folder)
+            if not program.is_file():
+                raise CheckFailed(f"{program} is missing")
+            check_help(program, folder)
+            check_render(program, recording, folder)
             if sys.platform == "win32":
                 shots = Shots(options.screenshots, options.print_screenshots)
                 desktop = Desktop()
-                check_programs(window_program, command, desktop)
-                check_window(window_program, recording, folder, desktop, shots)
-                check_console_program(command, recording, folder, desktop, shots)
-                check_picker(window_program, folder, desktop, shots)
+                check_program(program, desktop)
+                check_console_detection(folder, desktop)
+                check_window(program, recording, folder, desktop, shots)
+                check_picker(program, folder, desktop, shots)
             else:
                 say("windows and picker: not checked, as only Windows checks them")
         except CheckFailed as failure:
@@ -123,20 +120,20 @@ def write_check_recording(path: Path) -> None:
     write_recording(path, Recording(MODEL, 0.02, qpos, score=score, title=TITLE))
 
 
-def check_help(command: Path, folder: Path) -> None:
-    status, printed = run([command, "--help"], folder)
+def check_help(program: Path, folder: Path) -> None:
+    status, printed = run([program, "--help"], folder)
     if status or "render" not in printed:
-        raise CheckFailed(f"{command.name} --help: status {status}\n{printed}")
+        raise CheckFailed(f"{program.name} --help: status {status}\n{printed}")
     say("help: printed")
 
 
-def check_render(command: Path, recording: Path, folder: Path) -> None:
+def check_render(program: Path, recording: Path, folder: Path) -> None:
     video = folder / "check.mp4"
     size = ["--width", "320", "--height", "240"]
-    status, printed = run([command, "render", recording, "--out", video, *size], folder)
+    status, printed = run([program, "render", recording, "--out", video, *size], folder)
     written = re.search(r"(\d+) frames", printed)
     if status or not written:
-        raise CheckFailed(f"{command.name} render: status {status}\n{printed}")
+        raise CheckFailed(f"{program.name} render: status {status}\n{printed}")
     reader = imageio.get_reader(video)
     try:
         shown = [box_pixels(frame) for frame in reader]
@@ -150,20 +147,30 @@ def check_render(command: Path, recording: Path, folder: Path) -> None:
     say(f"render: {len(shown)} frames, each with {min(shown)}+ pixels of the box")
 
 
-def check_programs(window_program: Path, command: Path, desktop) -> None:
-    """The window program is windowed, so that Windows opens no console for
-    it, and carries the icon, which Explorer shows; the other needs a console."""
-    for program, wanted in ((window_program, WINDOWED), (command, CONSOLE)):
-        kind = subsystem(program)
-        if kind != wanted:
-            raise CheckFailed(f"{program.name} has subsystem {kind}, not {wanted}")
-    difference = icon_difference(desktop.file_icon(window_program))
+def check_program(program: Path, desktop) -> None:
+    """The program is windowed, so that Windows opens no console for it, and
+    carries the icon, which Explorer shows."""
+    kind = subsystem(program)
+    if kind != WINDOWED:
+        raise CheckFailed(f"{program.name} has subsystem {kind}, not {WINDOWED}")
+    difference = icon_difference(desktop.file_icon(program))
     if difference:
-        raise CheckFailed(f"{window_program.name}'s own icon: {difference}")
-    say(
-        f"programs: {window_program.name} windowed, with the icon; "
-        f"{command.name} a console program"
-    )
+        raise CheckFailed(f"{program.name}'s own icon: {difference}")
+    say(f"program: {program.name} windowed, with the icon")
+
+
+def check_console_detection(folder: Path, desktop) -> None:
+    """A console program, Python itself, started as a double-click starts it,
+    opens a console window that the check sees: else its seeing none beside
+    the window would mean nothing."""
+    waiting = [sys.executable, "-c", "import time; time.sleep(60)"]
+    with Started(waiting, folder, "console", desktop) as started:
+        deadline = time.monotonic() + 30
+        while not started.consoles():
+            if time.monotonic() > deadline:
+                raise CheckFailed("a console program's console window is not seen")
+            time.sleep(0.5)
+    say("console windows: seen when a console program opens one")
 
 
 def check_window(program: Path, recording: Path, folder: Path, desktop, shots) -> None:
@@ -191,23 +198,6 @@ def check_window(program: Path, recording: Path, folder: Path, desktop, shots) -
         f"window: opened as {WINDOW_TITLE!r} with no console window, carried the "
         f"icon, showed {shown} pixels of the box, and quit"
     )
-
-
-def check_console_program(
-    command: Path, recording: Path, folder: Path, desktop, shots
-) -> None:
-    with Started([command, recording], folder, "console program", desktop) as started:
-        window = started.wait_for_window(lambda text: text == WINDOW_TITLE, shots)
-        time.sleep(2)  # the console window shown too
-        shots.take_taskbar("taskbar-console.png", shots.take("console.png"), desktop)
-        consoles = started.consoles()
-        if not consoles:
-            raise CheckFailed(
-                "console program: no console window seen, so the check that "
-                "the window program opens none cannot be trusted"
-            )
-        started.quit(window)
-    say(f"console program: opened the window and a console window, {consoles}")
 
 
 def check_picker(program: Path, folder: Path, desktop, shots) -> None:
@@ -368,7 +358,7 @@ class Started:
 class Shots:
     """The screenshots: saved into a folder, and some printed when asked."""
 
-    PRINTED = ("window.png", "console.png")  # at half size; taskbars in full
+    PRINTED = ("window.png",)  # at half size; the taskbar in full
 
     def __init__(self, folder: Path, printed: bool) -> None:
         self.folder, self.printed = folder, printed

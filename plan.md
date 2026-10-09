@@ -538,8 +538,9 @@ makes, so that the tool runs without Python installed. R8 had left it for
 later.
 
 **Builds:** `packaging/MujocoReplay.spec`, PyInstaller's recipe for one
-folder with both programs, the window without a console and the command,
-carrying the icon; the file picker run as a hidden `--pick-files` mode of
+folder with the window program, without a console, carrying the icon (a
+console program beside it was dropped at the user's word, below); the file
+picker run as a hidden `--pick-files` mode of
 the command, since a frozen program's `sys.executable` is the program
 itself; `packaging/check.py`, which checks a built folder as a person would
 use it; `.github/workflows/executable.yml`, which builds the folder on
@@ -582,6 +583,18 @@ the user saw, which shows that the check sees one. The executable also no
 longer names itself on the taskbar (`MujocoReplay.Viewer`), which would
 have kept its window apart from the program pinned there.
 
+The user's second start found everything working, and asked what the
+second program was for, since both opened the window. It was for a
+terminal and for videos; the user chose one program, with the command line,
+`render` included, coming from the Python package, a dependency the user
+accepts for it. The zip now holds `MujocoReplay.exe` alone; the check runs
+its help and its video with its output taken, and starts Python itself as
+the console program that shows the check sees console windows. The README
+was rewritten at the same time, shorter and with pictures, at the user's
+request: the window and a replay of Centipede's model, from stand-in
+recordings simulated from the model with an open-loop gait, since no real
+run's recordings are in the container.
+
 ## Status
 
 | Stage | Status |
@@ -598,4 +611,4 @@ have kept its window apart from the program pinned there.
 | R10 — Rings and radii that change | Built (2026-10-08); the user's check pending |
 | R11 — Tabs | Built (2026-10-09); the user's check pending |
 | R12 — An icon, Loop, and Play next | Built (2026-10-09); the user's check pending |
-| R13 — The executable | Built (2026-10-09); the console program renamed after the user's first check; the second pending |
+| R13 — The executable | Built (2026-10-09); checked by the user on Windows, then reduced to one program; merged into `main` |
