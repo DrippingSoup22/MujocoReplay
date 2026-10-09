@@ -1,10 +1,10 @@
-"""Tests for the window: files dropped and played, the playlist, the settings."""
+"""Tests for the window: files dropped and played, the tabs, the settings."""
 
 import glfw
 import numpy as np
 import pytest
 
-from mujoco_replay import ui
+from mujoco_replay import cli, ui
 from mujoco_replay.recording import Recording, write_recording
 from mujoco_replay.settings import Settings, load_settings
 from mujoco_replay.viewer import Viewer
@@ -48,41 +48,44 @@ def test_dropped_recordings_play_with_the_settings_count_of_worlds(
     viewer.renderer.close()
 
 
-def test_a_dropped_file_that_is_no_recording_is_told_and_changes_nothing(
-    window, tmp_path
+def test_a_dropped_file_that_is_no_recording_is_told_and_the_others_open(
+    window, make_recording, tmp_path
 ):
-    notes = tmp_path / "notes.npz"
+    notes, good = tmp_path / "notes.npz", tmp_path / "run.npz"
     notes.write_text("not a recording")
+    write_recording(good, make_recording())
     viewer = Viewer(window, Settings(cache=False), 0.3)
 
     viewer._on_drop(window, [str(notes)])
     viewer._take_files()
-
     assert viewer.playback is None
-    assert "cannot be read as a recording" in viewer._message
+    viewer._on_drop(window, [str(notes), str(good)])
+    viewer._take_files()
+
+    assert len(viewer.recordings) == 1
+    assert "notes.npz cannot be read as a recording" in viewer._message
     viewer.renderer.close()
 
 
-def test_stepping_back_into_a_file_that_needs_composing_shows_it(
+def test_a_tab_that_needs_composing_shows_its_file_at_the_frame_shown(
     window, make_recording
 ):
     first = make_recording(frames=5, worlds=3, seed=1)
     second = make_recording(frames=2, worlds=1, seed=2)  # another composite
     viewer = Viewer(window, Settings(worlds=4, cache=False), 0.3)
     viewer.load([first, second])
-    viewer.playback.next_file()
-    viewer._show_file()
-
-    viewer.playback.step(-1)  # to the first file's last frame
-    viewer._show_file()
-
-    assert viewer.scene.recording is first and viewer.scene.frame_index == 0
+    viewer.playback.last_frame()
     viewer._draw()
-    assert viewer.scene.frame_index == 4
+
+    viewer._act("next file")  # composed while the scene shows the first file
+    viewer._show_file()
+    viewer._draw()
+
+    assert viewer.scene.recording is second and viewer.scene.frame_index == 1
     viewer.renderer.close()
 
 
-def test_a_later_file_whose_model_fails_is_left_out_of_the_playlist(
+def test_a_later_file_whose_model_fails_is_closed_and_the_last_comes_back(
     window, make_recording, small_model
 ):
     good = make_recording(frames=3, worlds=3)
@@ -92,12 +95,13 @@ def test_a_later_file_whose_model_fails_is_left_out_of_the_playlist(
     viewer.playback.last_frame()
     viewer._draw()
 
-    viewer.playback.step(1)  # into the bad file
-    viewer._show_file()
+    viewer._act("tab 1")  # the bad file
+    problems = viewer._show_file()
 
-    assert viewer.playback.recordings == [good] and viewer.scene.recording is good
+    assert viewer.recordings == [good] and viewer.scene.recording is good
     assert viewer.playback.frame_index == 2 and not viewer.playback.playing
-    assert "bad: qpos has 10 positions" in viewer._message
+    assert len(viewer.paths) == 1  # its tab is closed
+    assert len(problems) == 1 and "bad: qpos has 10 positions" in problems[0]
     viewer.renderer.close()
 
 
@@ -156,11 +160,11 @@ def test_the_next_file_highlights_its_best_world_unless_one_was_picked(
         scene = viewer.scene
         return int(scene.recording.world_ids[scene.worlds[scene.highlight]])
 
-    viewer.playback.next_file()
+    viewer._act("next file")
     viewer._show_file()
     assert highlighted() == 12  # the second file's best
     viewer._act("next world")
-    viewer.playback.previous_file()
+    viewer._act("previous file")
     viewer._show_file()
     assert highlighted() == 11  # the picked world, drawn in the first file too
     viewer.renderer.close()
@@ -212,6 +216,156 @@ def test_with_one_world_drawn_the_panel_offers_the_highlight_but_no_ghosts(
     labels = [row.label for row in viewer._rows() if isinstance(row, ui.Stepper)]
 
     assert "Highlight" in labels and "Ghosts" not in labels
+    viewer.renderer.close()
+
+
+def tabs(viewer) -> list[str]:
+    """The names on the tabs, as last laid out."""
+    return [box.text for box in viewer.boxes if box.action.startswith("tab ")]
+
+
+def test_opening_more_files_adds_tabs_and_shows_the_first_at_the_same_frame(
+    window, make_recording, tmp_path
+):
+    early, late = tmp_path / "early.npz", tmp_path / "late.npz"
+    write_recording(early, make_recording(frames=6, seed=1))
+    write_recording(late, make_recording(frames=6, seed=2))
+    viewer = Viewer(window, Settings(cache=False), 0.3)
+    viewer.open_files([str(early)])
+    viewer.playback.seek(4)  # paused at the fifth frame
+    viewer.renderer.camera.lookat[:] = (1.0, 2.0, 3.0)
+
+    viewer.open_files([str(late)])
+    viewer._draw()
+
+    assert tabs(viewer) == ["early", "late"] and viewer.playback.file_index == 1
+    assert viewer.scene.recording is viewer.recordings[1]
+    assert viewer.scene.frame_index == 4 and not viewer.playback.playing
+    assert list(viewer.renderer.camera.lookat) == [1.0, 2.0, 3.0]  # the same model
+    viewer.renderer.close()
+
+
+def test_a_file_open_already_shows_its_tab_instead_of_a_second_one(
+    window, make_recording, tmp_path
+):
+    paths = []
+    for name in ("a", "b"):
+        path = tmp_path / f"{name}.npz"
+        write_recording(path, make_recording(seed=len(paths)))
+        paths.append(str(path))
+    viewer = Viewer(window, Settings(cache=False), 0.3)
+    viewer.open_files(paths)
+    viewer._act("tab 1")
+    viewer._show_file()
+
+    viewer.open_files([str(tmp_path / "." / "a.npz")])  # the same file
+    viewer._show_file()
+    viewer.load([make_recording(seed=2)], paths=[paths[1]])  # as from the command
+
+    assert len(viewer.recordings) == 2 and viewer.playback.file_index == 0
+    viewer.renderer.close()
+
+
+def test_closing_the_shown_tab_shows_its_neighbour_and_the_last_the_empty_world(
+    window, make_recording
+):
+    recordings = [make_recording(seed=seed) for seed in range(3)]
+    viewer = Viewer(window, Settings(cache=False), 0.3)
+    viewer.load(recordings)
+    viewer._act("tab 1")
+    viewer._show_file()
+
+    viewer._act("close tab 1")  # the next tab takes its place
+    viewer._show_file()
+    assert viewer.scene.recording is recordings[2]
+    viewer._act("close tab 1")  # the last tab: the one before
+    viewer._show_file()
+    assert viewer.scene.recording is recordings[0]
+    viewer._act("close all")
+    viewer._draw()
+
+    assert viewer.playback is None and viewer.recordings == []
+    assert viewer.scene.recording.title == "no recording" and not tabs(viewer)
+    viewer.renderer.close()
+
+
+def test_close_all_leaves_no_scrolled_tabs_behind(window, make_recording):
+    recordings = [make_recording(seed=seed) for seed in range(12)]
+    viewer = Viewer(window, Settings(cache=False), 0.3)
+    viewer.load(recordings)
+    viewer.tabs.scroll_by(6)
+    viewer._draw()
+    assert "tab 0" not in {box.action for box in viewer.boxes}
+
+    viewer._act("close all")
+    viewer.load(recordings)
+    viewer._draw()
+
+    assert "tab 0" in {box.action for box in viewer.boxes}
+    viewer.renderer.close()
+
+
+def test_each_file_left_out_is_counted_in_the_message(
+    window, make_recording, small_model, tmp_path
+):
+    junk, bad = tmp_path / "a_junk.npz", tmp_path / "b_bad.npz"
+    junk.write_text("not a recording")
+    write_recording(bad, Recording(small_model, 0.02, np.zeros((2, 3, 10))))
+    viewer = Viewer(window, Settings(cache=False), 0.3)
+    viewer.load([make_recording()])
+
+    viewer.open_files([str(junk), str(bad)])
+
+    assert "a_junk.npz cannot be read" in viewer._message
+    assert viewer._message.endswith("(and 1 more file left out)")
+    viewer.renderer.close()
+
+
+def test_a_failing_file_after_worlds_chosen_by_id_brings_the_last_back_whole(
+    window, make_recording, small_model
+):
+    ids = [10, 11, 12, 13]
+    good = make_recording(worlds=4, world_ids=ids)
+    bad = Recording(small_model, 0.02, np.zeros((2, 3, 10)), title="bad")
+    viewer = Viewer(window, Settings(worlds=4, cache=False), 0.3)
+    viewer.load([good], ids=[10, 12])
+
+    viewer.load([bad])  # opened from the window: the worlds by id end
+    viewer._act("next world")
+
+    assert viewer.scene.recording is good and len(viewer.scene.worlds) == 4
+    viewer.renderer.close()
+
+
+def test_the_command_ends_with_the_reason_when_none_of_its_files_shows(
+    opengl, saved, small_model, tmp_path, capsys
+):
+    bad = tmp_path / "bad.npz"
+    write_recording(bad, Recording(small_model, 0.02, np.zeros((2, 3, 10))))
+
+    status = cli.main([str(bad), "--width", "160", "--height", "120"])
+
+    assert status == 1
+    assert "bad: qpos has 10 positions" in capsys.readouterr().err
+
+
+def test_a_click_on_a_tab_shows_its_file_and_ctrl_tab_and_ctrl_w_act_on_tabs(
+    window, make_recording
+):
+    viewer = Viewer(window, Settings(cache=False), 0.3)
+    viewer.load([make_recording(seed=1), make_recording(seed=2)])
+    viewer._draw()
+    box = next(box for box in viewer.boxes if box.action == "tab 1")
+    middle = (box.x + box.width / 2, box.y + box.height / 2)
+
+    press(viewer, window, *middle, glfw.PRESS)
+    press(viewer, window, *middle, glfw.RELEASE)
+    assert viewer.playback.file_index == 1
+    viewer._on_key(window, glfw.KEY_TAB, 0, glfw.PRESS, glfw.MOD_CONTROL)
+    assert viewer.playback.file_index == 0 and viewer.settings.panel  # round
+    viewer._on_key(window, glfw.KEY_W, 0, glfw.PRESS, glfw.MOD_CONTROL)
+
+    assert len(viewer.recordings) == 1 and viewer.settings.panel
     viewer.renderer.close()
 
 

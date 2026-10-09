@@ -10,7 +10,6 @@ current. The ``mjr_`` overlay functions draw text and rectangles on top. A
 """
 
 import json
-import unicodedata
 
 import mujoco
 import numpy as np
@@ -18,7 +17,7 @@ import numpy as np
 from mujoco_replay.recording import Recording
 from mujoco_replay.scene import ComposedScene
 from mujoco_replay.settings import QUALITY, Graphics
-from mujoco_replay.ui import text_width
+from mujoco_replay.ui import ascii_text, text_width
 
 # The highlighted world's markers; the ghosts' are ghost grey.
 MARKER_RGBA = np.array([0.95, 0.15, 0.65, 0.9], dtype=np.float32)
@@ -60,10 +59,6 @@ EVENT_RGB = (1.0, 0.72, 0.2)
 EPISODE_RGB = (0.25, 0.6, 1.0)
 TEXT_RGB = (0.92, 0.93, 0.95)
 SHADE_RGBA = (0.07, 0.08, 0.10, 0.75)
-# MuJoCo's fonts hold ASCII only; these characters have close equivalents.
-ASCII_EQUIVALENTS = str.maketrans(
-    {"·": "|", "×": "x", "–": "-", "—": "-", "…": "...", "’": "'", "“": '"', "”": '"'}
-)
 _IDENTITY = np.eye(3).ravel()
 
 
@@ -158,11 +153,13 @@ class SceneRenderer:
         message: str = "",
         hint: str = "",
         fresh: bool = False,
+        top: int = 0,
     ) -> None:
         """Draw the scene as posed now, with the overlay unless ``hud`` is off.
 
-        The scene fills the window right of ``left`` pixels, and the overlay
-        keeps ``inset`` pixels clear, for the panel. ``side`` holds lines for
+        The scene fills the window right of ``left`` pixels and below the
+        ``top`` pixels, for the panel and the tabs, and the overlay keeps
+        ``inset`` pixels clear on the left. ``side`` holds lines for
         the top right, such as the setup; ``corner`` is a line for the bottom
         right, such as the frame rate; ``message`` is shown at the top and
         ``hint`` large in the middle. These four show without the overlay too.
@@ -194,6 +191,7 @@ class SceneRenderer:
             width,
             height,
             left,
+            top,
         )
         windowed = self._offscreen_size is None
         self.drew_scene = not windowed or fresh or picture != self._picture
@@ -215,14 +213,15 @@ class SceneRenderer:
                 self._keep_shadows_clean()
             if self.markers_visible:
                 self._add_markers()
-        viewport = mujoco.MjrRect(left, 0, max(1, width - left), height)
+        below = max(1, height - top)
+        viewport = mujoco.MjrRect(left, 0, max(1, width - left), below)
         if windowed:  # draw a share offscreen, scale it up
             share = self.graphics.resolution / 100
             drawn = mujoco.MjrRect(
                 0,
                 0,
                 max(1, round(viewport.width * share)),
-                max(1, round(height * share)),
+                max(1, round(below * share)),
             )
             self._fit_buffer(width, height)
             mujoco.mjr_setBuffer(mujoco.mjtFramebuffer.mjFB_OFFSCREEN, context)
@@ -232,7 +231,7 @@ class SceneRenderer:
             mujoco.mjr_setBuffer(mujoco.mjtFramebuffer.mjFB_WINDOW, context)
         else:
             mujoco.mjr_render(viewport, shapes, context)
-        area = mujoco.MjrRect(inset, 0, max(1, width - inset), height)
+        area = mujoco.MjrRect(inset, 0, max(1, width - inset), below)
         line = context.charHeight
         above, info_width, info_height = (
             self._overlay(area, status, flash) if hud else (0, 0, 0)
@@ -242,24 +241,27 @@ class SceneRenderer:
             above += 2 * line  # the playback line's own row
         if side:  # beside or below the top-left lines, clear of the rest
             bottom = above + (2 * line if corner else 0)
-            top = area.height - (2 * line if message else 0)
+            ceiling = area.height - (2 * line if message else 0)
             beside = mujoco.MjrRect(
                 area.left + info_width,
                 bottom,
                 max(1, area.width - info_width),
-                max(1, top - bottom),
+                max(1, ceiling - bottom),
             )
-            below = mujoco.MjrRect(
-                area.left, bottom, area.width, max(1, top - info_height - bottom)
+            under = mujoco.MjrRect(
+                area.left,
+                bottom,
+                area.width,
+                max(1, ceiling - info_height - bottom),
             )
-            self._side((beside, below), side)
+            self._side((beside, under), side)
         if corner:  # above the playback line and the timeline, if any
             raised = mujoco.MjrRect(area.left, above, area.width, area.height - above)
             mujoco.mjr_overlay(
                 mujoco.mjtFont.mjFONT_NORMAL,
                 mujoco.mjtGridPos.mjGRID_BOTTOMRIGHT,
                 raised,
-                _ascii(corner),
+                ascii_text(corner),
                 "",
                 context,
             )
@@ -268,7 +270,7 @@ class SceneRenderer:
                 mujoco.mjtFont.mjFONT_NORMAL,
                 mujoco.mjtGridPos.mjGRID_TOP,
                 area,
-                _ascii(message),
+                ascii_text(message),
                 "",
                 context,
             )
@@ -358,23 +360,24 @@ class SceneRenderer:
         self.camera.distance = 0.8 * np.linalg.norm(high - low) + 1.2 * extent
 
     def copy_at(
-        self, x: float, y: float, width: int, height: int, left: int
+        self, x: float, y: float, width: int, height: int, left: int, top: int = 0
     ) -> int | None:
         """The drawn world under a point of the last drawing, if any, as its copy.
 
         ``x`` and ``y`` are pixels from the bottom left of a window ``width`` by
-        ``height`` whose scene starts ``left`` pixels in, as ``render`` drew it.
+        ``height`` whose scene starts ``left`` pixels in and ends ``top``
+        pixels below its top, as ``render`` drew it.
         """
-        scene, across = self.scene, max(1, width - left)
+        scene, across, below = self.scene, max(1, width - left), max(1, height - top)
         point = np.zeros(3)
         geom, flex, skin = (np.zeros(1, dtype=np.int32) for _ in range(3))
         body = mujoco.mjv_select(
             scene.model,
             scene.data,
             self.option,
-            across / max(1, height),
+            across / below,
             (x - left) / across,
-            y / max(1, height),
+            y / below,
             self._shapes,
             point,
             geom,
@@ -512,7 +515,7 @@ class SceneRenderer:
         )
         shape.category = mujoco.mjtCatBit.mjCAT_DECOR
         if label:
-            shape.label = _ascii(label)
+            shape.label = ascii_text(label)
         shapes.ngeom += 1
         return shape
 
@@ -535,12 +538,12 @@ class SceneRenderer:
         above = self._timeline(area)
         raised = mujoco.MjrRect(area.left, above, area.width, area.height - above)
         fit = area.width - 2 * line
-        info = [_cut(context, _ascii(text), fit) for text in info_lines(self.scene)]
+        info = [_cut(context, ascii_text(text), fit) for text in info_lines(self.scene)]
         mujoco.mjr_overlay(
             normal, grid.mjGRID_TOPLEFT, area, "\n".join(info), "", context
         )
         if status:
-            status = _cut(context, _ascii(status), fit)
+            status = _cut(context, ascii_text(status), fit)
             mujoco.mjr_overlay(
                 normal, grid.mjGRID_BOTTOMLEFT, raised, status, "", context
             )
@@ -548,7 +551,7 @@ class SceneRenderer:
             lift = above + 2 * context.charHeight
             clear = mujoco.MjrRect(area.left, lift, area.width, area.height - lift)
             mujoco.mjr_overlay(
-                big, grid.mjGRID_BOTTOM, clear, _ascii(flash), "", context
+                big, grid.mjGRID_BOTTOM, clear, ascii_text(flash), "", context
             )
         width = max(text_width(context, text) for text in info) + 2 * line
         return above, width, len(info) * (line + line // 3) + line // 2
@@ -598,7 +601,7 @@ class SceneRenderer:
         rows = max(1, (area.height - line // 2) // step)
         needed = -(-len(lines) // rows)  # columns, rounded up
         widest = min(max(area.width // needed, 10 * line), area.width) - line
-        whole = [_ascii(text) for text in lines]
+        whole = [ascii_text(text) for text in lines]
         texts = [_cut(context, text, widest) for text in whole]
         cut = sum(text != full for text, full in zip(texts, whole, strict=True))
         columns = [texts[start : start + rows] for start in range(0, len(texts), rows)]
@@ -650,7 +653,7 @@ class SceneRenderer:
         ):
             x = x_at(frame)
             mujoco.mjr_rectangle(mujoco.MjrRect(x, 0, 2, bar + 3), *EVENT_RGB, 1.0)
-            label = _ascii(label)
+            label = ascii_text(label)
             size = text_width(context, label) + 8
             start = int(np.clip(x - size // 2, left, max(left, left + width - size)))
             if start < free:
@@ -662,7 +665,7 @@ class SceneRenderer:
 
     def _hint(self, area: mujoco.MjrRect, hint: str) -> None:
         """A large line in the middle of the area, on a dark band."""
-        context, hint = self._context, _ascii(hint)
+        context, hint = self._context, ascii_text(hint)
         width = text_width(context, hint, big=True) + 2 * context.charHeight
         height = context.charHeightBig + context.charHeight
         rect = mujoco.MjrRect(
@@ -769,15 +772,6 @@ def _cut(context: mujoco.MjrContext, text: str, width: int) -> str:
 def _number(value: float) -> str:
     """Whole numbers with thousands separators, others to four digits."""
     return f"{int(value):,}" if float(value).is_integer() else f"{value:.4g}"
-
-
-def _ascii(text: str) -> str:
-    """Text that MuJoCo's ASCII-only fonts can draw: accents dropped, others "?"."""
-    decomposed = unicodedata.normalize("NFKD", text.translate(ASCII_EQUIVALENTS))
-    return "".join(
-        char if char.isascii() else "" if unicodedata.combining(char) else "?"
-        for char in decomposed
-    )
 
 
 def _add_shadows_and_reflections(model: mujoco.MjModel) -> None:

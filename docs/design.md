@@ -24,6 +24,9 @@ file described in [recording-format.md](recording-format.md).
   files from a file picker or dropped onto it, and offers a small panel of
   its own settings, never MuJoCo's raw options, with a Quality and a
   Performance mode so that it plays on a weak graphics card (stage R6).
+- Several recordings open at once, each in a tab, so that the start and the
+  end of a training run can be compared without opening them again (stage
+  R11).
 
 Not goals: physics, editing, side-by-side scenes, or a graphical toolkit:
 the panel is drawn with MuJoCo's own overlay functions. Drawing is bounded by
@@ -38,12 +41,12 @@ blob anyway.
 | --- | --- | --- |
 | `recording.py` | The file format: `Recording`, `write_recording`, `read_recording` | NumPy |
 | `selection.py` | `selected_ranks` and `level_of_ranks`, shared with producers; `world_counts` and `choose_worlds(recording, count, world_ids=None, keep=None)`: which of a file's worlds to draw, and in what rank order | NumPy |
-| `scene.py` | `ComposedScene`: the composite model, the joint mapping, colours, markers, `set_frame(frame_index)`, and `fits`/`show` to reuse the composite for another file of the same model, or other worlds of the same file | MuJoCo, NumPy |
-| `playback.py` | `Playback`: the playlist, current frame, play/pause, speed presets, stepping and seeking, the events just passed, and the playback line of the overlay; pure logic, no graphics | NumPy, through `recording` |
+| `scene.py` | `ComposedScene`: the composite model, the joint mapping, colours, markers, `set_frame(frame_index)`, `fits`/`show` to reuse the composite for another file of the same model, or other worlds of the same file, and `same_model` | MuJoCo, NumPy |
+| `playback.py` | `Playback`: the open files (the window's tabs, or a video's playlist), current frame, play/pause, speed presets, stepping and seeking, the events just passed, and the playback line of the overlay; pure logic, no graphics | NumPy, through `recording` |
 | `render.py` | `SceneRenderer`: the MuJoCo render context, camera, graphics settings, drawing of the scene, markers, overlay, timeline, and reading pixels back; works in a window or offscreen | MuJoCo, NumPy |
 | `settings.py` | `Settings` and `Graphics`: the Quality and Performance presets, the ghosts' strengths, and keeping the settings in the user's settings folder | NumPy, through `selection` |
-| `ui.py` | `Panel`: the side panel's rows, their layout, drawing, and clicks | MuJoCo |
-| `viewer.py` | The application: the window, the empty world, opening files, the panel's actions, the keys and the mouse, the main loop that draws only on change | GLFW, MuJoCo, NumPy; imported only by the `view` command |
+| `ui.py` | `Panel`: the side panel's rows, their layout, drawing, and clicks; `TabBar` and `tab_names`: the tabs of the open files; the ASCII text MuJoCo's fonts draw | MuJoCo |
+| `viewer.py` | The application: the window, the empty world, opening files in tabs, the panel's actions, the keys and the mouse, the main loop that draws only on change | GLFW, MuJoCo, NumPy; imported only by the `view` command |
 | `video.py` | Offscreen rendering of a playlist to an MP4 | `imageio`, `imageio-ffmpeg`, MuJoCo, NumPy; imported only by the `render` command, so a missing `video` extra fails before any work |
 | `cli.py`, `__main__.py` | The `mujoco-replay` command and `python -m mujoco_replay` | argparse, NumPy; the window and video modules inside the commands |
 | `launcher.py` | The `MujocoReplay` program: the command without a console window, its failures shown in a message box | The standard library; the command inside `main` |
@@ -205,7 +208,9 @@ values, so that every band holds a world to draw. `--worlds N` sets the count
 (16 by default) and `--ids 3,7,9` draws exactly those `world_ids` instead; the
 two exclude each other, and an `--ids` list that matches no world of a file is
 an error naming the file; while `--ids` holds, the panel names the worlds as
-chosen by id instead of offering the count. The rank shown is the
+chosen by id instead of offering the count. It holds until files are opened
+from the window, which the command line did not check against the list; every
+tab draws the count from then on. The rank shown is the
 producer's, among all its worlds, when the file gives one (`rank` and
 `ranked_worlds`), and the rank within the file otherwise.
 
@@ -218,7 +223,7 @@ worlds only, so with one world drawn no other could be seen. A world that the
 count does not draw takes the place of the best world of its band
 (`choose_worlds(..., keep=index)`): the count stays as set, the ghosts
 still spread over the ranks, and the same composite shows it at once, as for
-the next file of a run. So with every world drawn nothing changes but the
+another file of a run. So with every world drawn nothing changes but the
 highlight; with one world drawn, the one drawn is the highlighted world;
 with 4 of 32, highlighting rank 6, as the overlay counts, draws it instead of
 rank 1, its quarter's best, which comes back when the highlight leaves that
@@ -227,9 +232,9 @@ holds, the highlight moves through the chosen worlds only.
 
 ## Playback and keys
 
-`Playback` owns a playlist of recordings and a position: file index, frame
-index, playing or paused, and the speed as seconds of wall time per recorded
-frame. The default is 0.1 s per frame, ten recorded frames a second, which
+`Playback` owns the open files and a position: file index, frame index,
+playing or paused, and the speed as seconds of wall time per recorded frame.
+The default is 0.1 s per frame, ten recorded frames a second, which
 the user chose on 2026-10-08 (it was 0.3 s): a 20 ms step is still seen as a
 step, and a 256-frame window plays in 26 s. The presets, in seconds per
 frame, are 3, 2, 1, 0.5, 0.3, 0.2, 0.1,
@@ -238,23 +243,25 @@ speed, so that a file with frames longer than 0.05 s places real time among
 the fixed presets; the overlay shows both the seconds per frame and the
 multiple of real time. Advancing uses wall
 time, so a slow renderer skips frames at fast speeds rather than slowing down.
-When a file ends, playback continues with the next file in the playlist and
-stops at the end of the last one; Space at the very end replays that file.
-Stepping crosses into the neighbouring file. `Playback.advance(now)` returns
-the events whose frame was passed since the last call, so the overlay can
-flash them: an event at frame `T` of a file is passed on moving into the next
-file, or, in the last file, on stopping there while playing.
+In the window the files are the tabs ([below](#tabs)), and each plays on its
+own: playing stops at the end of the file shown, Space there replays it, and
+stepping stays in the file. In a video the files are a playlist
+(`Playback(run_on=True)`): when a file ends, playback continues with the next
+and stops at the end of the last, and stepping would cross into the
+neighbouring file. `Playback.advance(now)` returns the events whose frame was
+passed since the last call, so the overlay can flash them: an event at frame
+`T` of a file is passed on moving into a video's next file, or on stopping
+at the end while playing.
 
-Changing file needs the scene of the new file. When its model and number of
-drawn worlds match the current scene's (`ComposedScene.fits`), as for
-consecutive windows of one run, the same composite shows it (`show`), at once
-and with the camera kept; otherwise a new scene is composed, after which the
-viewer calls `Playback.sync(now)` so that the time spent composing is not
-played. A world the user highlighted stays highlighted, by `world_ids`, when
-the new file holds it, drawn in place of the best world of its band;
-otherwise, and whenever the user has not picked one, the new file's best
-world is. Clicking or dragging on the timeline pauses at that frame
-(`Playback.seek`).
+Showing another file needs its scene. When its model and number of drawn
+worlds match the current scene's (`ComposedScene.fits`), as for files of one
+run, the same composite shows it (`show`), at once; otherwise a new scene is
+composed, after which the viewer calls `Playback.sync(now)` so that the time
+spent composing is not played. A world the user highlighted stays
+highlighted, by `world_ids`, when the new file holds it, drawn in place of the
+best world of its band; otherwise, and whenever the user has not picked one,
+the new file's best world is. Clicking or dragging on the timeline pauses at
+that frame (`Playback.seek`).
 
 | Key | Action |
 | --- | --- |
@@ -264,7 +271,9 @@ world is. Clicking or dragging on the timeline pauses at that frame
 | 0 | Back to the default speed |
 | Home, End | First or last frame of the file |
 | R | Restart the file |
-| N, P | Next or previous file in the playlist |
+| N, P | Show the next or previous tab's file, round from the end, at the same frame |
+| Ctrl+Tab, Ctrl+Shift+Tab | The same, as in an editor |
+| Ctrl+W | Close the tab shown |
 | B, Shift+B | Highlight the next or previous world of the file, by rank, drawn or not |
 | G | Hide the ghosts, or show them again at their strength |
 | M | Show or hide the markers |
@@ -280,26 +289,88 @@ world is. Clicking or dragging on the timeline pauses at that frame
 | Esc, Q | Ask whether to quit: Enter, Y, or Q again quits; Esc or N stays. The window's close button asks too |
 
 Right and Left repeat while held; every other key acts once per press. Letter
-keys are read as the characters they type (GLFW's character callback), so
-that they follow the keyboard's layout: on a French keyboard Q is the key
-marked Q, not the one where an American Q sits. Shift is read from the key
-itself, so that Caps Lock does not turn B into Shift+B. Mouse: left drag rotates, right drag pans, middle drag zooms, through
-`mujoco.mjv_moveCamera` (in MuJoCo 3.12 it takes no scene argument); Shift
-with the left drag turns around the vertical only, and Shift with the right
-drag pans in the horizontal plane. The wheel zooms in when turned away from
-the user, as in most programs (MuJoCo's own viewer does the opposite). The
-camera stays at least 2° above the horizon, so it cannot slip under the
-floor, and panning switches following off, since following would undo it.
-A double-click on a world highlights it (`mjv_select` names the shape under
-the cursor, hence its copy); the timeline takes clicks and drags.
+keys are read as the characters they type (GLFW's character callback), so that
+they follow the keyboard's layout: on a French keyboard Q is the key marked Q,
+not the one where an American Q sits. Shift is read from the key itself, so
+that Caps Lock does not turn B into Shift+B. GLFW sends no character while
+Ctrl is held, so Ctrl+W is read from the key's name in the keyboard's layout
+(`glfw.get_key_name`), and Ctrl with Alt, which is AltGr on Windows and types
+characters, does not count as Ctrl. Mouse: left drag rotates, right drag pans, middle
+drag zooms, through `mujoco.mjv_moveCamera` (in MuJoCo 3.12 it takes no scene
+argument); Shift with the left drag turns around the vertical only, and Shift
+with the right drag pans in the horizontal plane. The wheel zooms in when
+turned away from the user, as in most programs (MuJoCo's own viewer does the
+opposite). The camera stays at least 2° above the horizon, so it cannot slip
+under the floor, and panning switches following off, since following would
+undo it. A double-click on a world highlights it (`mjv_select` names the shape
+under the cursor, hence its copy); the timeline takes clicks and drags.
+
+## Tabs
+
+Every file, given on the command line, picked, or dropped, opens in a tab of
+its own along the top of the window, right of the panel, so that several
+recordings stay open at once: the user asked for this on 2026-10-09,
+to compare how a run performs at the start and at the end of its training
+without opening the files again. Opening files adds their tabs after those
+open, picked or dropped files in the order of their names and the command
+line's in the order given, and shows the first; a file already open, however
+its path is written, is not opened twice, and when every file was open
+already, the first one's tab is shown. A file that cannot be read is
+reported and the others open; one whose model fails when its tab is first
+shown is closed again, and the file shown before comes back, composed again
+when opening files from the window ended the worlds chosen by id. The
+message names the first problem and counts the other files left out. When
+none of the files given on the command line can be shown, the command ends
+with status 1 and the first problem, as for a file it cannot read.
+
+Switching tabs swaps the data and keeps everything else: the frame (the
+file's last, when it is shorter), playing or paused, the speed, the number of
+worlds, the ghosts, the highlighted world (by `world_ids`, when the file
+holds it), and the camera, for a file of the same model
+(`ComposedScene.same_model`, even when the number of drawn worlds differs);
+another model's scene is framed as it is at the frame shown. Flicking between
+two tabs therefore shows two files at the same moment of their episodes, as
+an image viewer keeps the zoom while it flicks between two pictures; a tab
+does not keep a place of its own. Each tab plays on its own: playing does not
+run on from a file's end into the next tab, as the window's playlist did
+before, because a switch from a longer file lands on a shorter file's last
+frame, and while playing, the next frame would have switched tabs by itself.
+
+A tab is named by its file, without its folder and extension, cut in the
+middle when it is wider than 12 lines of text, since the end of a numbered
+file's name tells it from its neighbours (`cycle_0016` from `cycle_0304`).
+Files of the same name, such as the same cycle of two runs, also show the
+folders above them that tell them apart, leaving out those they share, as
+`cycle_0016 (runA)` and `cycle_0016 (runB)`: Centipede's files sit in
+`runs/<run>/recordings/`, so the run's folder is the first that differs, and
+three such files may need two folders, as `c (e1/runA)`, `c (e2/runA)`, and
+`c (e1/runB)`. The shown file's tab is lit; each tab has a button that closes
+it, and a `+` after the tabs opens more. Tabs too many for the width keep
+their size and scroll: an arrow at each end moves them by one, as does the
+wheel over them, and the shown tab comes into view whenever it, the number
+of tabs, or the window's width changes. A tab is cut to the width left, but
+never below a few letters, so that a click on its name cannot land on its
+button; a window too narrow for the arrows shows the shown tab alone, and
+one narrower still, none. The panel's Close all closes every tab, as closing
+the last one does, and the empty world comes back. The tabs hide with the
+panel (Tab); the playback line still says which file of how many is shown.
+
+The scene is drawn below the tabs, as it is drawn right of the panel, so that
+its centre stays the visible centre, and the overlay starts below them too.
+Nothing about the tabs is saved between runs. There is no limit on the number
+of tabs: each open file stays in memory at about its size on disk (2.3 MB for
+32 worlds of Centipede's model over 256 frames, 72 MB for 1,024 worlds), only
+the shown file's scene is composed, and the cache makes coming back to a file
+of another model quick.
 
 ## Overlay
 
 Drawn with `mujoco.mjr_overlay` in the corners, and with
 `mujoco.mjr_rectangle` and `mujoco.mjr_label` for the timeline, in the normal
 font, so that the middle of the window stays clear. In the window the corners
-and the timeline keep to the right of the side panel. A message (a file that
-could not be opened, or "Composing 32 worlds ...") is shown at the top, and the
+and the timeline keep to the right of the side panel and below the tabs. A
+message (a file that could not be opened, or "Composing 32 worlds ...") is
+shown at the top, and the
 empty world shows its hint large in the middle. MuJoCo's fonts hold ASCII
 only, so the separators are ` | ` and `x`, and other characters in a
 recording's text are replaced: `·` by `|`, accents dropped, the rest by `?`.
@@ -311,8 +382,9 @@ recording's text are replaced: `·` by `|`, accents dropped, the rest by `?`.
   (`32 of 1,024 worlds drawn | 31 ghosts`, with `(hidden)` while `G` hides
   them). A line too long for the window is cut with `...`.
 - Bottom left: the playback line (`file 2 of 3 | frame 124 / 256 | 2.46 s |
-  0.1 s per frame (0.2x real time) | paused`); the file shows only for a
-  playlist, frames count from 1, and the time is the frame's since the start.
+  0.1 s per frame (0.2x real time) | paused`); the file shows only when
+  several are open, frames count from 1, and the time is the frame's since
+  the start.
 - Bottom: a thin timeline bar across the window, filled to the current frame,
   with an orange tick per event and its label in a box above it (a label that
   would cover the one before it is left out), and small blue ticks where the
@@ -361,9 +433,10 @@ on the highlighted world's centre; `F` keeps the camera's look-at point on it
 every frame, following the highlight as it moves, and leaves the camera where
 it stands when switched off. This is what MuJoCo's tracking camera
 (`mjCAMERA_TRACKING`) does for one body, but a world may have several root
-bodies. The camera is independent of playback; it is kept when the next file
-reuses the composite, and reframed for a file of another model, in the window
-and in the video alike.
+bodies. The camera is independent of playback. In the window it is kept when
+another file of the same model is shown, and reframed for a file of another
+model; a video keeps it while consecutive files share a composite, and frames
+each new composite.
 
 ## Rendering in a window and offscreen
 
@@ -375,8 +448,8 @@ resolution, with a font scale taken from the window's content scale (100 at
 normal density, 150 at 125 % and 150 %, 200 at double). Without a size from
 the command line, the window takes 85 % of the screen's free area, in its
 middle, so that the panel has room at the larger font scales. The scene is
-drawn right of the panel, so that the camera's centre is the visible
-centre; the panel is opaque.
+drawn right of the panel and below the tabs, so that the camera's centre is
+the visible centre; both are opaque.
 Offscreen drawing, for the video and the tests, uses `mujoco.GLContext`,
 MuJoCo's own helper, rather than a hand-made hidden GLFW window: by default it
 is exactly that hidden window, and on a Linux machine without a display it
@@ -491,41 +564,43 @@ came or went. Between such moments the main loop sleeps in
 
 The window opens on an empty world: a checkered floor under a sky, in
 Centipede's colours, with the line "Open recordings (O), or drop .npz files
-here". Recordings come from the command line, from the panel's Open button,
-which shows the system's file picker, or from files dropped onto the window
-(GLFW's drop callback). The picker is tkinter's, run in a process of its own,
+here". Recordings come from the command line, from the panel's Open button
+or the `+` after the tabs, which show the system's file picker, or from files
+dropped onto the window (GLFW's drop callback), each into a tab of its own
+([Tabs](#tabs)). The picker is tkinter's, run in a process of its own,
 which prints the chosen paths in UTF-8 into a temporary file: that keeps
 tkinter's event loop apart from GLFW's, the window keeps drawing while the
 picker is open, and no pipe can fill and hold the picker open, which a few
 dozen paths would do on Windows; where tkinter is missing, a message says so
-and points to dropping. Several files picked or dropped play in the order of
+and points to dropping. Several files picked or dropped open in the order of
 their names, numbers by value (`cycle_2` before `cycle_10`). A file that cannot be
 read or composed is reported as a message at the top of the window, and the
-window goes on showing what it showed; a later file of a playlist whose model
-fails is left out of the playlist, and playback goes back, paused, to the
-frame shown before.
+window goes on showing what it showed: a file whose model fails is closed
+when its tab is first shown, and the file shown before comes back, paused at
+the frame it showed.
 
 The side panel, on the left, is drawn with MuJoCo's own overlay functions
 (`mjr_rectangle`, `mjr_label`), so the viewer needs nothing beyond MuJoCo and
-NumPy. Its sections are Playback (the transport buttons, the time per frame,
-the file), Worlds (how many are shown, the highlighted rank, the ghosts'
-strength), View (Reset, Top, Follow), Graphics (the two presets, the four
-switches, the resolution), and Options (overlay, markers, setup, keys, frame
-rate, the cache). Switches are buttons lit while on, two or three to a row,
-so that the panel fits a laptop's window at 150 % scaling; when it still
-does not fit, a scroll bar along its edge says so, and the wheel scrolls it.
-The time per frame is the stepper's value, so that its minus makes playback
-faster and its value smaller, as the eye expects. The viewer describes the
-panel as plain rows each frame; `ui.Panel` lays them out, draws them, and
-names the action under a click, which the viewer then carries out, the same
-action a key would. A button acts when the mouse is released over it, so that
-a drag that begins on the panel, or slips off a button, does nothing. Tab
-hides the panel and leaves a small Panel button. A click's position is the
-one the cursor callback recorded in event order: asking GLFW for the cursor
-at the click would give where it is after the events still queued, so on a
-slow card a quick second click would land the first one too; driving the
-window found that. For the same reason the panel is laid out again right
-after each action, so that a click queued behind Tab does not meet the
+NumPy. Its first row opens recordings and, once some are open, closes them
+all; its sections are Playback (the transport buttons and the time per frame;
+the tabs replaced its file stepper), Worlds (how many are shown, the
+highlighted rank, the ghosts' strength), View (Reset, Top, Follow), Graphics
+(the two presets, the four switches, the resolution), and Options (overlay,
+markers, setup, keys, frame rate, the cache). Switches are buttons lit while
+on, two or three to a row, so that the panel fits a laptop's window at 150 %
+scaling; when it still does not fit, a scroll bar along its edge says so, and
+the wheel scrolls it. The time per frame is the stepper's value, so that its
+minus makes playback faster and its value smaller, as the eye expects. The
+viewer describes the panel as plain rows each frame; `ui.Panel` lays them out,
+draws them, and names the action under a click, which the viewer then carries
+out, the same action a key would. A button acts when the mouse is released
+over it, so that a drag that begins on the panel, or slips off a button, does
+nothing. Tab hides the panel and leaves a small Panel button. A click's
+position is the one the cursor callback recorded in event order: asking GLFW
+for the cursor at the click would give where it is after the events still
+queued, so on a slow card a quick second click would land the first one too;
+driving the window found that. For the same reason the panel is laid out again
+right after each action, so that a click queued behind Tab does not meet the
 hidden panel.
 
 The settings (the graphics, the number of worlds, the ghosts' strength, the
@@ -593,23 +668,25 @@ mujoco-replay render FILE [FILE ...] --out PATH [--fps 30] [--speed SECONDS]
               [--mode quality|performance] [--no-hud]
 ```
 
-`view` is the default subcommand, and the files are optional: without them
-the window opens on the empty world. `python -m mujoco_replay` is the same
-command. The saved settings supply what the command line leaves out; `--mode`
-and `--worlds` given to `view` are remembered, as the panel's changes are, and
-`--no-hud` hides the overlay for this run only: it is not saved, and a video
-carries the overlay unless `render` is given `--no-hud`, whatever the
-viewer's switch. `render` draws with the Quality graphics unless given
-`--mode performance`, and at 1280 × 720 unless told otherwise; the window
-takes most of the screen. Both subcommands expand wildcards in file names
-themselves (`recordings\*.npz`), since Windows' shells pass them on as they
-are, read and check every file before opening anything (the checks that need
-a later file's model come when playback reaches it), and exit with status 1
-and a one-line message for a bad file, a missing OpenGL, or a video file that
-cannot be written; `render` names a missing `video` extra the same way,
-refuses an output folder that does not exist before any work, and reports
-its progress on the error stream. Options may come before or after the
-files, and sizes are at least 16 pixels.
+`view` is the default subcommand, and the files are optional: without them the
+window opens on the empty world, and with them each opens in a tab. `python -m
+mujoco_replay` is the same command. The saved settings supply what the command
+line leaves out; `--mode` and `--worlds` given to `view` are remembered, as
+the panel's changes are, and `--no-hud` hides the overlay for this run only:
+it is not saved, and a video carries the overlay unless `render` is given
+`--no-hud`, whatever the viewer's switch. `render` draws with the Quality
+graphics unless given `--mode performance`, and at 1280 × 720 unless told
+otherwise; the window takes most of the screen. Both subcommands expand
+wildcards in file names themselves (`recordings\*.npz`), since Windows' shells
+pass them on as they are, read and check every file before opening anything
+(the checks that need a file's model come when it is first shown: in a video
+when playback reaches it, in the window when its tab is shown, and `view`
+fails only when none of its files can be shown), and exit with status 1 and a
+one-line message for a bad file, a missing OpenGL, or a video file that
+cannot be written; `render` names a missing `video` extra
+the same way, refuses an output folder that does not exist before any work,
+and reports its progress on the error stream. Options may come before or after
+the files, and sizes are at least 16 pixels.
 
 ## The program
 

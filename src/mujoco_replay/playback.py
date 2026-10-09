@@ -1,9 +1,13 @@
 """Where playback stands: which file and frame, playing or paused, and how fast.
 
 Pure logic without graphics, driven by the viewer and the video exporter. The
-speed is wall-clock seconds per recorded frame, slow enough by default to see
-each step. Advancing uses wall time, so a slow renderer skips frames at fast
-speeds instead of slowing down. docs/design.md lists the keys that drive it.
+files are a video's playlist, where playing runs on from the end of one file
+into the next, or the window's tabs, each played on its own; showing another
+file keeps the frame, so that two files can be compared at the same moment.
+The speed is wall-clock seconds per recorded frame, slow enough by default to
+see each step. Advancing uses wall time, so a slow renderer skips frames at
+fast speeds instead of slowing down. docs/design.md lists the keys that drive
+it.
 """
 
 import math
@@ -18,15 +22,22 @@ REAL_TIME_MULTIPLES = (1, 2, 4)
 
 
 class Playback:
-    """A playlist of recordings and a position in it."""
+    """A playlist of recordings and a position in it.
+
+    With ``run_on``, playing and stepping go on from the end of a file into
+    the next, as a video does; without, they stay in the file shown, as the
+    window's tabs do.
+    """
 
     def __init__(
         self,
         recordings: list[Recording],
         seconds_per_frame: float = DEFAULT_SECONDS_PER_FRAME,
         now: float = 0.0,
+        run_on: bool = True,
     ) -> None:
         self.recordings = recordings
+        self.run_on = run_on
         self.file_index = 0
         self.frame_index = 0
         self.playing = True
@@ -71,14 +82,14 @@ class Playback:
         return max(0.0, self.seconds_per_frame - self._owed - (now - self._clock))
 
     def toggle(self) -> None:
-        """Play or pause; playing again at the very end replays the file."""
+        """Play or pause; playing again at the end replays the file."""
         if not self.playing and self._at_end():
             self.frame_index = 0
         self.playing = not self.playing
         self._owed = 0.0
 
     def step(self, frames: int) -> list[str]:
-        """Pause and move ``frames`` frames, across files; return events passed."""
+        """Pause and move ``frames`` frames; return events passed."""
         self.playing = False
         self._owed = 0.0
         if frames > 0:
@@ -86,7 +97,7 @@ class Playback:
         for _ in range(-frames):
             if self.frame_index > 0:
                 self.frame_index -= 1
-            elif self.file_index > 0:
+            elif self.run_on and self.file_index > 0:
                 self.file_index -= 1
                 self.frame_index = self.recording.frame_count - 1
         return []
@@ -122,15 +133,20 @@ class Playback:
         self.playing = True
         self._owed = 0.0
 
-    def next_file(self) -> None:
-        if self.file_index + 1 < len(self.recordings):
-            self.file_index += 1
-            self.frame_index = 0
+    def show_file(self, index: int) -> None:
+        """Show another file at the same frame, or at its last when it is
+        shorter, playing or paused as before."""
+        self.file_index = index
+        self.frame_index = min(self.frame_index, self.recording.frame_count - 1)
 
-    def previous_file(self) -> None:
-        if self.file_index > 0:
+    def remove_file(self, index: int) -> None:
+        """Close a file; when it was shown, the one after it takes its place,
+        or the one before when it was the last. The last file may go too."""
+        del self.recordings[index]
+        if index < self.file_index or self.file_index == len(self.recordings):
             self.file_index -= 1
-            self.frame_index = 0
+        if self.recordings:
+            self.frame_index = min(self.frame_index, self.recording.frame_count - 1)
 
     def status(self) -> str:
         """The playback line of the overlay."""
@@ -149,19 +165,20 @@ class Playback:
         return " | ".join(parts)
 
     def _forward(self, frames: int) -> list[str]:
-        """Move forward frame by frame, into the next file at a file's end."""
+        """Move forward frame by frame, into the next file at a file's end
+        when playback runs on."""
         passed: list[str] = []
         for _ in range(frames):
             if self.frame_index + 1 < self.recording.frame_count:
                 self.frame_index += 1
                 passed += self._events_at(self.frame_index)
-            elif self.file_index + 1 < len(self.recordings):
+            elif self.run_on and self.file_index + 1 < len(self.recordings):
                 passed += self._events_at(self.recording.frame_count)
                 self.file_index += 1
                 self.frame_index = 0
                 passed += self._events_at(0)
             else:
-                if self.playing:  # the end of the playlist, reached while playing
+                if self.playing:  # the end, reached while playing
                     passed += self._events_at(self.recording.frame_count)
                 self.playing = False
                 break
@@ -181,10 +198,8 @@ class Playback:
         ]
 
     def _at_end(self) -> bool:
-        return (
-            self.file_index == len(self.recordings) - 1
-            and self.frame_index == self.recording.frame_count - 1
-        )
+        last = not self.run_on or self.file_index == len(self.recordings) - 1
+        return last and self.frame_index == self.recording.frame_count - 1
 
     def _set_speed(self, seconds_per_frame: float) -> None:
         self.seconds_per_frame = seconds_per_frame

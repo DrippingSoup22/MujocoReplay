@@ -63,6 +63,7 @@ def main(arguments: list[str] | None = None) -> int:
                 options.ids,
                 size,
                 hud=not options.no_hud,
+                paths=options.files,
             )
             return 0
         try:

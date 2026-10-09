@@ -15,6 +15,18 @@ overlay shows the facts of the run. The same scene can be rendered to a video.
 
 ## Status
 
+**Stage R11, tabs, built (2026-10-09):** recordings open in tabs along the
+top of the window, one per file, as an editor shows its files, so that the
+start and the end of a run's training can be compared without opening them
+again. Opening more files adds tabs instead of replacing what is open; a
+click on a tab, or N, P, and Ctrl+Tab, shows its file at the same frame, with
+the highlighted world kept, and the camera too for files of one model, so
+that two files compare moment by moment; a tab's `x`, Ctrl+W, or the panel's
+Close all closes tabs. Each
+tab plays on its own: the end of a file no longer runs on into the next,
+which only a video's playlist still does. There is no limit on the number of
+tabs; each open file stays in memory at about its size on disk.
+
 **Stage R10, rings and radii that change, built (2026-10-08):** a marker
 can be drawn as a ring, a circle lying flat around it, and its radius can
 change from frame to frame and differ between worlds. Centipede asked for
@@ -65,7 +77,7 @@ recordings.
 | --- | --- |
 | [`plan.md`](plan.md) | The stages that build the tool, each with its checks |
 | [`docs/recording-format.md`](docs/recording-format.md) | The recording file: every key, its shape and meaning, and the writer and reader |
-| [`docs/design.md`](docs/design.md) | How the tool is built: modules, scene composition, world selection, playback, overlay, camera, graphics settings, the application and its panel, the cache, video |
+| [`docs/design.md`](docs/design.md) | How the tool is built: modules, scene composition, world selection, playback, the tabs, overlay, camera, graphics settings, the application and its panel, the cache, video |
 | [`AGENTS.md`](AGENTS.md) | Working rules for coding assistants |
 
 ## Project folders
@@ -127,9 +139,13 @@ mujoco-replay render RECORDING.npz --out replay.mp4
 ```
 
 (`python -m mujoco_replay` is the same command.) Without files the window
-opens empty: open recordings with the panel's Open button (or `O`), or drop
-`.npz` files onto it; several files play one after the other, in the order of
-their names. The panel on the left sets everything else: playback, how many
+opens empty: open recordings with the panel's Open button (or `O`, or the `+`
+after the tabs), or drop `.npz` files onto it. Each file opens in a tab of
+its own along the top, in the order of their names, and opening more adds
+tabs: a click on a tab, or N, P, and Ctrl+Tab, shows its file at the same
+frame, so that the start and the end of a run compare moment by moment, and
+a tab's `x`, Ctrl+W, or Close all closes them. The panel on the left sets
+everything else: playback, how many
 worlds are drawn and how strongly the ghosts show, the highlighted world, the
 view, the graphics (Quality, Performance, or single switches), and the
 options; Tab hides it. On a weak graphics card, start in Performance mode

@@ -141,15 +141,19 @@ class ComposedScene:
         """Whether another recording's worlds can be shown on this composite.
 
         The composite depends only on the model and the number of copies, so
-        consecutive files of one run reuse it instead of composing again.
+        files of one run reuse it instead of composing again.
         """
+        return self.same_model(recording) and len(worlds) == len(self.worlds)
+
+    def same_model(self, recording: Recording) -> bool:
+        """Whether another recording is of this scene's model, so that the
+        camera can stay where it is when that recording is shown."""
         own = self.recording
         return (
             recording.model_xml == own.model_xml
             and recording.assets == own.assets
             and recording.replicated_bodies == own.replicated_bodies
             and recording.position_count == own.position_count
-            and len(worlds) == len(self.worlds)
         )
 
     def show(

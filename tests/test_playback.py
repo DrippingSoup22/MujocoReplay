@@ -72,6 +72,47 @@ def test_playback_runs_on_into_the_next_file_and_stops_at_the_end_of_the_last():
     assert position(playback) == (1, 0, True)
 
 
+def test_without_running_on_each_file_plays_and_steps_on_its_own():
+    playback = Playback([clip(2, {2: "end"}), clip(2)], 1.0, now=0.0, run_on=False)
+
+    assert playback.advance(5.0) == ["end"]
+    assert position(playback) == (0, 1, False)  # stopped at the file's end
+    playback.step(1)
+    assert position(playback) == (0, 1, False)
+    playback.toggle()  # playing again at the end replays the file
+    assert position(playback) == (0, 0, True)
+    playback.show_file(1)
+    playback.step(-1)
+    assert position(playback) == (1, 0, False)
+
+
+def test_showing_another_file_keeps_the_frame_as_far_as_that_file_reaches():
+    playback = Playback([clip(10), clip(4)], 1.0, now=0.0)
+    playback.advance(6.0)
+
+    playback.show_file(1)
+    assert position(playback) == (1, 3, True)  # its last frame, still playing
+    playback.show_file(0)
+    assert position(playback) == (0, 3, True)
+
+
+def test_closing_the_shown_file_shows_the_next_or_after_the_last_the_one_before():
+    first, second, third, fourth = clip(5), clip(5), clip(2), clip(5)
+    playback = Playback([first, second, third, fourth])
+    playback.show_file(2)
+
+    playback.remove_file(0)  # before the shown file
+    assert playback.recording is third and playback.file_index == 1
+    playback.seek(1)
+    playback.remove_file(1)  # the shown file: the next takes its place
+    assert playback.recording is fourth and playback.frame_index == 1
+    playback.seek(4)
+    playback.remove_file(1)  # the shown file, the last: the one before
+    assert playback.recording is second and playback.frame_index == 4
+    playback.remove_file(0)
+    assert playback.recordings == []
+
+
 def test_each_event_is_reported_once_when_playback_passes_it():
     playback = Playback(
         [clip(3, {1: "one", 3: "end of first"}), clip(2, {0: "second", 2: "end"})],

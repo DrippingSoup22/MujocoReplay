@@ -1,8 +1,10 @@
-"""The application window: the scene, the side panel, the keys, and the mouse.
+"""The application window: the scene, the panel, the tabs, the keys, and the mouse.
 
 The window opens on an empty flat world and plays recordings once they are
 opened: from the command line, with the panel's Open button (the system's file
-picker), or by dropping files onto the window. The panel holds the settings,
+picker), or by dropping files onto the window. Each file opens in a tab of its
+own along the top, and switching tabs shows another file at the same frame,
+so that two files compare at the same moment. The panel holds the settings,
 which are saved as they change. Each turn of the main loop advances playback
 by wall time and draws only when something changed, so a paused window costs
 next to nothing. GLFW opens the window and delivers the input; only the
@@ -10,6 +12,7 @@ next to nothing. GLFW opens the window and delivers the input; only the
 """
 
 import math
+import os
 import subprocess
 import sys
 import tempfile
@@ -129,7 +132,9 @@ HELP = [
     "0: default speed",
     "Home, End: first, last frame",
     "R: restart the file",
-    "N, P: next, previous file",
+    "N, Ctrl+Tab: next tab",
+    "P, Ctrl+Shift+Tab: previous tab",
+    "Ctrl+W: close the tab",
     "B: next world",
     "Shift+B: previous world",
     "Double-click: highlight a world",
@@ -157,6 +162,7 @@ def run(
     ids: list[int] | None = None,
     size: tuple[int, int] | None = None,
     hud: bool = True,
+    paths: list[str] | None = None,
 ) -> None:
     """Open the window, with ``recordings`` if any, until it is closed.
 
@@ -164,6 +170,9 @@ def run(
     best of each rank band; the caller has checked that each file has some.
     Without ``size``, the window takes most of the screen, in its middle.
     ``hud`` off hides the overlay for this run without saving that.
+    ``paths`` are the recordings' files, which name their tabs. When none of
+    them can be shown, the first file's problem is raised as a
+    ``RecordingError``, as the command does for a file it cannot read.
     """
     if not glfw.init():
         raise RuntimeError("GLFW cannot start: the window needs a display")
@@ -181,7 +190,9 @@ def run(
         glfw.swap_interval(1)
         viewer = Viewer(window, settings, seconds_per_frame, hud)
         if recordings:
-            viewer.load(recordings, ids)
+            problems = viewer.load(recordings, ids, paths)
+            if viewer.playback is None:  # none could be shown
+                raise RecordingError(problems[0])
         viewer.loop()
     finally:
         glfw.terminate()
@@ -238,7 +249,7 @@ class FilePicker:
 
 
 class Viewer:
-    """The state of the window: files, playback, scene, renderer, and panel."""
+    """The state of the window: files, playback, scene, renderer, panel, tabs."""
 
     def __init__(
         self,
@@ -251,15 +262,18 @@ class Viewer:
         self.settings = settings if hud else replace(settings, overlay=False)
         self._saved = settings  # what is saved: the run's own choices left out
         self.seconds_per_frame = seconds_per_frame
-        self.recordings: list[Recording] = []
+        self.paths: list[str | None] = []  # each tab's file; None without one
         self.ids: list[int] | None = None
-        self.playback: Playback | None = None
-        self.scene = ComposedScene(_empty_world(), np.arange(1))
+        self.playback: Playback | None = None  # its files are the tabs'
+        self._empty = _empty_world()
+        self.scene = ComposedScene(self._empty, np.arange(1))
         self.renderer = SceneRenderer(
             self.scene, font_scale=_font_scale(window), graphics=settings.graphics
         )
         _look_at_empty_world(self.renderer)
         self.panel = ui.Panel()
+        self.tabs = ui.TabBar()
+        self._names: list[str] = []  # the tabs' names
         self.boxes: list[ui.Box] = []
         self.setup = False
         self.help = False
@@ -269,7 +283,6 @@ class Viewer:
         self._passed: list[str] = []  # events passed, not yet flashed
         self._flash, self._flash_until = "", 0.0
         self._message, self._message_until = "", 0.0
-        self._shown_file = 0
         self._picked: int | None = None  # the world id the user highlighted
         self._shown_ghosts = (
             Settings().ghosts if settings.ghosts == "hidden" else settings.ghosts
@@ -282,7 +295,9 @@ class Viewer:
         self._dragging = False  # a drag that began on the scene, not the panel
         self._scrubbing = False  # a drag that began on the timeline
         self._last_press = (-math.inf, 0.0, 0.0)  # its time and place
-        self._left = self._inset = 0  # where the scene and the overlay begin
+        # Where the scene and the overlay begin on the left, and the pixels
+        # the tabs take at the top.
+        self._left = self._inset = self._top = 0
         self._draw_seconds: deque[float] = deque(maxlen=30)
         self._actions = self._make_actions()
         glfw.set_key_callback(window, self._on_key)
@@ -307,9 +322,8 @@ class Viewer:
             if self.playback is not None:
                 before = self._position()
                 self._passed += self.playback.advance(now)
-                if self.playback.file_index != self._shown_file:
-                    self._show_file()
                 self._dirty |= self._position() != before
+            self._report(self._show_file())  # when another tab's file is due
             if self._passed:  # timed from now, so that composing cannot eat it
                 self._flash = "  ".join(self._passed)
                 self._flash_until = time.monotonic() + FLASH_SECONDS
@@ -325,28 +339,86 @@ class Viewer:
         if self._picker is not None:
             self._picker.close()
 
-    def load(self, recordings: list[Recording], ids: list[int] | None = None) -> None:
-        """Play ``recordings`` from the first; a model that fails leaves all as was."""
-        worlds = choose_worlds(recordings[0], self.settings.worlds, ids)
-        self._say_now(f"Composing {len(worlds)} worlds ...")
-        scene = ComposedScene(recordings[0], worlds, self._cache())
-        self.recordings, self.ids = recordings, ids
-        speed = self.seconds_per_frame
-        if self.playback is not None:
-            speed = self.playback.seconds_per_frame
-        self.playback = Playback(recordings, speed, time.monotonic())
-        self._picked = None
-        self._use(scene, reframe=True)
-        self._message = ""
+    @property
+    def recordings(self) -> list[Recording]:
+        """The open files' recordings, in the order of their tabs."""
+        return self.playback.recordings if self.playback is not None else []
+
+    def load(
+        self,
+        recordings: list[Recording],
+        ids: list[int] | None = None,
+        paths: list[str | None] | None = None,
+    ) -> list[str]:
+        """Open ``recordings`` in tabs after those open, and show the first.
+
+        ``paths`` are their files, which name the tabs; a file open already
+        is not opened again. ``ids``, the world ids to draw instead of the
+        best of each rank band, hold until files are opened from the window.
+        As when switching tabs, the frame, the pause, and the highlighted
+        world stay; a file whose model fails is closed again. Returns the
+        problems found, which are also told.
+        """
+        problems = self._add(recordings, paths, ids)
+        self._report(problems)
+        return problems
 
     def open_files(self, paths: list[str]) -> None:
-        """Read and play the files at ``paths``; a bad file is reported, not played."""
-        if not paths:
-            return
-        try:
-            self.load([read_recording(path) for path in paths])
-        except RecordingError as error:
-            self._say(str(error))
+        """Open the files at ``paths`` in tabs, and show the first.
+
+        A file already open is not opened again: when every file is, the
+        first one's tab is shown. A file that cannot be read is reported,
+        and the others open.
+        """
+        recordings, opened, problems = [], [], []
+        shown = None  # the tab of the first of the files open already
+        for path in paths:
+            if any(_where(path) == _where(other) for other in opened):
+                continue
+            tab = self._tab_of(path)
+            if tab is not None:
+                shown = tab if shown is None else shown
+                continue
+            try:
+                recordings.append(read_recording(path))
+                opened.append(path)
+            except RecordingError as error:
+                problems.append(str(error))
+        if recordings:
+            problems += self._add(recordings, opened)
+        elif shown is not None:
+            self._show_tab(shown)
+        self._report(problems)
+
+    def _add(
+        self,
+        recordings: list[Recording],
+        paths: list[str | None] | None,
+        ids: list[int] | None = None,
+    ) -> list[str]:
+        """Open tabs after those open and show the first; return the problems
+        of the files closed again."""
+        paths = paths or [None] * len(recordings)
+        fresh = []
+        for recording, path in zip(recordings, paths, strict=True):
+            places = [_where(other) for _, other in fresh if other is not None]
+            if path is not None and (
+                self._tab_of(path) is not None or _where(path) in places
+            ):
+                continue  # open already
+            fresh.append((recording, path))
+        if not fresh:
+            return []
+        if self.playback is None:  # each tab plays on its own
+            speed, now = self.seconds_per_frame, time.monotonic()
+            self.playback = Playback([], speed, now, run_on=False)
+        first = len(self.recordings)
+        self.recordings.extend(recording for recording, _ in fresh)
+        self.paths += [path for _, path in fresh]
+        self.ids = ids
+        self._name_tabs()
+        self.playback.show_file(first)
+        return self._show_file()
 
     def _draw(self) -> None:
         self._dirty = False
@@ -357,9 +429,11 @@ class Viewer:
         line = context.charHeight
         panel = ui.Panel.width(line) if self.settings.panel else 0
         self._left, self._inset = panel, panel or 6 * line
-        loaded = self.playback is not None
-        # While the next file is composed, the scene still shows the last one.
-        if loaded and self._shown_file == self.playback.file_index:
+        tabs = self.settings.panel and self.playback is not None
+        self._top = ui.TabBar.height(line) if tabs else 0
+        loaded = self.playback is not None and self.scene.recording is not self._empty
+        # While another tab's file is composed, the scene shows the one before.
+        if loaded and self.scene.recording is self.playback.recording:
             if self.scene.frame_index != self.playback.frame_index:
                 self.scene.set_frame(self.playback.frame_index)
         side = None
@@ -382,6 +456,7 @@ class Viewer:
             message=self._message,
             hint="" if loaded else "Open recordings (O), or drop .npz files here",
             fresh=first,  # a frame to time, even when only the overlay changed
+            top=self._top,
         )
         hover = self._pixels(*self._cursor)
         self.panel.draw(self._layout(), height, context, hover, self.settings.panel)
@@ -396,8 +471,9 @@ class Viewer:
         glfw.swap_buffers(self.window)
 
     def _layout(self) -> list[ui.Box]:
-        """The panel's boxes as things stand, or the button that shows it."""
-        height = glfw.get_framebuffer_size(self.window)[1]
+        """The panel's boxes and the tabs as things stand, or the button that
+        shows them."""
+        width, height = glfw.get_framebuffer_size(self.window)
         context = self.renderer.context
         line = context.charHeight
         if self.settings.panel:
@@ -405,7 +481,14 @@ class Viewer:
             def measure(text: str) -> int:
                 return ui.text_width(context, text)
 
-            return self.panel.layout(self._rows(), height, line, measure)
+            boxes = self.panel.layout(self._rows(), height, line, measure)
+            if self.playback is not None:
+                left, shown = ui.Panel.width(line), self.playback.file_index
+                beside = max(0, width - left)
+                boxes += self.tabs.layout(
+                    self._names, shown, left, beside, height, line, measure
+                )
+            return boxes
         row = line + line // 2
         top = height - line // 2 - row
         return [ui.Box(line // 2, top, 5 * line, row, "button", "Panel", "panel")]
@@ -428,14 +511,15 @@ class Viewer:
     def _rows(self) -> list[ui.Row]:
         """The panel as it stands, top to bottom."""
         settings, graphics = self.settings, self.settings.graphics
-        rows: list[ui.Row] = [
-            ui.Title("MujocoReplay"),
-            ui.Buttons((("Open recordings ...", "open"),)),
-        ]
+        rows: list[ui.Row] = [ui.Title("MujocoReplay")]
         playback = self.playback
         if playback is None:
-            rows.append(ui.Note("or drop .npz files on the window"))
+            rows += [
+                ui.Buttons((("Open recordings ...", "open"),)),
+                ui.Note("or drop .npz files on the window"),
+            ]
         else:
+            rows.append(ui.Buttons((("Open ...", "open"), ("Close all", "close all"))))
             play = "Pause" if playback.playing else "Play"
             controls = (("|<", "first"), ("<", "back"), (play, "play"))
             controls += ((">", "step"), (">|", "last"))
@@ -445,9 +529,6 @@ class Viewer:
                 ui.Buttons(controls),
                 ui.Stepper("Per frame", per_frame, "faster", "slower"),
             ]
-            if len(self.recordings) > 1:
-                where = f"{playback.file_index + 1} of {len(self.recordings)}"
-                rows.append(ui.Stepper("File", where, "previous file", "next file"))
         if playback is None:
             shown = str(settings.worlds)
         else:
@@ -553,8 +634,12 @@ class Viewer:
             "slower": playing(lambda playback: playback.slower()),
             "faster": playing(lambda playback: playback.faster()),
             "default speed": playing(lambda playback: playback.default_speed()),
-            "previous file": playing(lambda playback: playback.previous_file()),
-            "next file": playing(lambda playback: playback.next_file()),
+            "previous file": lambda: self._step_tab(-1),
+            "next file": lambda: self._step_tab(1),
+            "close file": lambda: self._close_tab(self._shown_tab()),
+            "close all": self._unload,
+            "tabs left": lambda: self.tabs.scroll_by(-1),
+            "tabs right": lambda: self.tabs.scroll_by(1),
             "fewer": lambda: self._step_worlds(-1),
             "more": lambda: self._step_worlds(1),
             "previous world": lambda: self._step_highlight(-1),
@@ -587,7 +672,13 @@ class Viewer:
         }
 
     def _act(self, action: str) -> None:
-        self._actions[action]()
+        kind, _, tab = action.rpartition(" ")  # a tab's actions end in its number
+        if kind == "tab":
+            self._show_tab(int(tab))
+        elif kind == "close tab":
+            self._close_tab(int(tab))
+        else:
+            self._actions[action]()
         # Clicks still queued must meet the panel as it now is, not as drawn.
         self.boxes = self._targets()
         self._dirty = True
@@ -648,7 +739,7 @@ class Viewer:
 
     def _recompose(self) -> None:
         """Choose and compose the worlds again after the count changed."""
-        recording = self.recordings[self.playback.file_index]
+        recording = self.playback.recording
         worlds = self._choose(recording)
         self._say_now(f"Composing {len(worlds)} worlds ...")
         scene = ComposedScene(recording, worlds, self._cache())
@@ -656,35 +747,104 @@ class Viewer:
         self._message = ""
         self.playback.sync(time.monotonic())  # composing may have taken a while
 
-    def _show_file(self) -> None:
-        """Show the playlist's current file, with the world the user highlighted.
+    def _show_file(self) -> list[str]:
+        """Show the shown tab's file, when the scene does not, at the frame of
+        playback and with the world the user highlighted; return the problems
+        of the files closed on the way.
 
-        A file whose model fails is left out of the playlist, and playback
-        goes back, paused, to the frame shown before.
+        The camera stays for a file of the same model. A file whose model
+        fails is closed, and the file shown before comes back, paused at the
+        frame it showed; when that file is closed too, the one that took the
+        failed file's place is shown, and the empty world after the last.
         """
-        index = self.playback.file_index
-        recording = self.recordings[index]
-        worlds = self._choose(recording)
-        previous = self.scene
-        if previous.fits(recording, worlds):
-            previous.show(recording, worlds)
-            self._use(previous, reframe=False)
+        problems = []
+        while self.playback and self.playback.recording is not self.scene.recording:
+            recording = self.playback.recording
+            worlds = self._choose(recording)
+            previous = self.scene
+            if previous.fits(recording, worlds):
+                previous.show(recording, worlds, self.playback.frame_index)
+                self._use(previous, reframe=False)
+            else:
+                self._say_now(f"Composing {len(worlds)} worlds ...")
+                try:
+                    scene = ComposedScene(recording, worlds, self._cache())
+                except RecordingError as error:
+                    problems.append(str(error))
+                    self._close_tab(self.playback.file_index)
+                    back = self._tab_of_recording(previous.recording)
+                    if back is not None:
+                        self.playback.show_file(back)
+                        self.playback.frame_index = previous.frame_index
+                        self.playback.playing = False
+                        worlds = self._choose(previous.recording)
+                        if not np.array_equal(worlds, previous.worlds):
+                            self._recompose()  # opening ended the worlds by id
+                    continue
+                scene.set_frame(self.playback.frame_index)  # framed as it is now
+                self._use(scene, reframe=not previous.same_model(recording))
+                self._message = ""
+            self.playback.sync(time.monotonic())  # composing may have taken a while
+        return problems
+
+    def _show_tab(self, index: int) -> None:
+        """Show another tab's file at the same frame; the main loop shows it."""
+        if self.playback is not None and 0 <= index < len(self.recordings):
+            self.playback.show_file(index)
+
+    def _step_tab(self, direction: int) -> None:
+        """Show the next or previous tab's file, round from the end."""
+        if self.playback is not None:
+            count = len(self.recordings)
+            self._show_tab((self.playback.file_index + direction) % count)
+
+    def _shown_tab(self) -> int:
+        return self.playback.file_index if self.playback is not None else -1
+
+    def _close_tab(self, index: int) -> None:
+        """Close a tab; when its file was shown, the next tab's file is shown,
+        or the previous one's after the last tab, and the empty world after
+        the only one."""
+        if self.playback is None or not 0 <= index < len(self.recordings):
+            return
+        self.playback.remove_file(index)
+        del self.paths[index]
+        if self.recordings:
+            self._name_tabs()
         else:
-            self._say_now(f"Composing {len(worlds)} worlds ...")
-            try:
-                scene = ComposedScene(recording, worlds, self._cache())
-            except RecordingError as error:
-                del self.recordings[index]  # the playback's playlist too
-                if index < self._shown_file:
-                    self._shown_file -= 1
-                self.playback.file_index = self._shown_file
-                self.playback.frame_index = previous.frame_index
-                self.playback.playing = False
-                self._say(f"{error} (left out of the playlist)")
-                return
-            self._use(scene, reframe=True)
-            self._message = ""
-        self.playback.sync(time.monotonic())  # composing may have taken a while
+            self._unload()
+
+    def _unload(self) -> None:
+        """Close every tab: back to the empty world, as at the start."""
+        if self.playback is not None:
+            self.seconds_per_frame = self.playback.seconds_per_frame
+        self.playback, self.paths, self._names = None, [], []
+        self.ids = self._picked = None
+        self.tabs = ui.TabBar()
+        self.scene = ComposedScene(self._empty, np.arange(1))
+        self.renderer.show(self.scene)
+        _look_at_empty_world(self.renderer)
+        glfw.set_window_title(self.window, "MujocoReplay")
+        self._draw_seconds.clear()
+        self._dirty = True
+
+    def _tab_of(self, path: str) -> int | None:
+        """The tab of the file at ``path``, when it is open."""
+        place = _where(path)
+        for index, other in enumerate(self.paths):
+            if other is not None and _where(other) == place:
+                return index
+        return None
+
+    def _tab_of_recording(self, recording: Recording) -> int | None:
+        for index, other in enumerate(self.recordings):
+            if other is recording:
+                return index
+        return None
+
+    def _name_tabs(self) -> None:
+        titles = [recording.title for recording in self.recordings]
+        self._names = ui.tab_names(self.paths, titles)
 
     def _use(self, scene: ComposedScene, reframe: bool) -> None:
         """Show ``scene`` with the ghosts as set and the world the user picked.
@@ -700,7 +860,6 @@ class Viewer:
         drawn = scene.recording.world_ids[scene.worlds]
         same = np.flatnonzero(drawn == self._picked) if self._picked is not None else []
         scene.set_highlight(int(same[0]) if len(same) else 0)
-        self._shown_file = self.playback.file_index
         title = f"MujocoReplay - {scene.recording.title}"
         # A file name's undecodable bytes become lone surrogates, which GLFW refuses.
         glfw.set_window_title(self.window, title.encode(errors="replace").decode())
@@ -738,7 +897,7 @@ class Viewer:
         self._highlight(int(worlds[place % len(worlds)]))
 
     def _highlight(self, world: int) -> None:
-        """Highlight a world of the file, and keep it highlighted in the next files.
+        """Highlight a world of the file, and keep it highlighted in other files.
 
         A world that is not drawn takes the place of the best world of its
         band, on the same composite, so the count drawn stays as set.
@@ -776,8 +935,9 @@ class Viewer:
     def _take_files(self) -> None:
         """Open what the picker chose or what was dropped, once there is any.
 
-        Several files play in the order of their names, which is what a run's
-        numbered files need, whatever order the system hands them over in.
+        Several files open in tabs in the order of their names, which is what
+        a run's numbered files need, whatever order the system hands them
+        over in.
         """
         if self._picker is not None:
             try:
@@ -792,6 +952,13 @@ class Viewer:
         if self._dropped:
             paths, self._dropped = self._dropped, []
             self.open_files(in_name_order(paths))
+
+    def _report(self, problems: list[str]) -> None:
+        """Tell the first problem, and how many more files it left out."""
+        if problems:
+            more = len(problems) - 1
+            left = f" (and {more} more file{'s' * (more > 1)} left out)" if more else ""
+            self._say(problems[0] + left)
 
     def _say(self, message: str) -> None:
         self._message = message
@@ -840,6 +1007,10 @@ class Viewer:
     def _over_panel(self, x: float) -> bool:
         return self.settings.panel and x < self._left
 
+    def _over_tabs(self, y: float) -> bool:
+        height = glfw.get_framebuffer_size(self.window)[1]
+        return self._top > 0 and y >= height - self._top
+
     def _on_timeline(self, x: float, y: float) -> bool:
         """Whether a point is on the timeline, or just above it."""
         line = self.renderer.context.charHeight
@@ -856,7 +1027,7 @@ class Viewer:
     def _pick(self, x: float, y: float) -> None:
         """Highlight the world under a point of the scene, if any."""
         width, height = glfw.get_framebuffer_size(self.window)
-        copy = self.renderer.copy_at(x, y, width, height, self._left)
+        copy = self.renderer.copy_at(x, y, width, height, self._left, self._top)
         if copy is not None:
             self._highlight(int(self.scene.worlds[copy]))
             self._dirty = True
@@ -867,7 +1038,15 @@ class Viewer:
         stepping = key in (glfw.KEY_RIGHT, glfw.KEY_LEFT)
         if action == glfw.RELEASE or (action == glfw.REPEAT and not stepping):
             return
-        name = (QUIT_KEYS if self.asking else KEYS).get(key)
+        control = mods & glfw.MOD_CONTROL and not mods & glfw.MOD_ALT  # not AltGr
+        if self.asking:
+            name = QUIT_KEYS.get(key)
+        elif control and key == glfw.KEY_TAB:  # the tabs, as in an editor
+            name = "previous file" if self._shift else "next file"
+        elif control and glfw.get_key_name(key, scancode) in ("w", "W"):
+            name = "close file"
+        else:
+            name = KEYS.get(key)
         if name is not None:
             self._act(name)
 
@@ -901,8 +1080,8 @@ class Viewer:
         if name is not None:
             self._pressed = name
             return
-        if self.asking or self._over_panel(x):  # the question takes the mouse
-            return
+        if self.asking or self._over_panel(x) or self._over_tabs(y):
+            return  # the question, the panel, and the tabs take the mouse
         left = button == glfw.MOUSE_BUTTON_LEFT
         if left and self._on_timeline(x, y):
             self._scrubbing = True
@@ -954,8 +1133,12 @@ class Viewer:
         """The wheel scrolls the panel under the cursor, and zooms elsewhere."""
         if self.asking:
             return
-        if self._over_panel(self._pixels(*self._cursor)[0]):
+        pixels = self._pixels(*self._cursor)
+        if self._over_panel(pixels[0]):
             self.panel.scroll_by(round(-2 * self.renderer.context.charHeight * y))
+            self.boxes = self._layout()
+        elif self._over_tabs(pixels[1]):  # forward, or a swipe left, goes left
+            self.tabs.scroll_by(-1 if (y or -x) > 0 else 1)
             self.boxes = self._layout()
         else:  # forward, away from the user, zooms in
             self.renderer.move_camera(mujoco.mjtMouse.mjMOUSE_ZOOM, 0.0, 0.05 * y)
@@ -990,7 +1173,13 @@ def _empty_world() -> Recording:
     return Recording(EMPTY_WORLD, 0.02, np.zeros((1, 1, 0)), title="no recording")
 
 
+def _where(path: str) -> str:
+    """A file's place, the same for every way of writing its path."""
+    return os.path.normcase(os.path.realpath(path))
+
+
 def _look_at_empty_world(renderer: SceneRenderer) -> None:
+    renderer.set_follow(False)
     camera = renderer.camera
     camera.lookat[:] = 0.0
     camera.distance, camera.elevation, camera.azimuth = 3.0, -20.0, 120.0
