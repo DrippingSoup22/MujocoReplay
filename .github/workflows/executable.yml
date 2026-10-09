@@ -1,13 +1,13 @@
-# The Windows executable: the programs in one folder that runs without Python,
+# The Windows executable: the program in one folder that runs without Python,
 # zipped. PyInstaller builds for the system it runs on, so one of GitHub's
-# Windows machines builds it, runs the tests, and then checks the programs as
-# a person would use them (packaging/check.py). The zip, and the checks'
+# Windows machines builds it, runs the tests, and then checks the program as a
+# person would use it (packaging/check.py). The zip, and the check's
 # screenshots, are kept on the run's page under Artifacts.
 name: Windows executable
 
 on:
   push:
-    branches: [main, claude/executable]
+    branches: [main]
   workflow_dispatch:
 
 permissions:

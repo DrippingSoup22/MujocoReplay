@@ -766,8 +766,8 @@ On Windows the tool also comes as a program that needs no Python:
 `MujocoReplay.exe`, the window without a console, as the program above
 opens it, in a folder that PyInstaller builds from
 `packaging/MujocoReplay.spec`, with `_internal` beside it, where Python,
-NumPy, MuJoCo, GLFW, tkinter, imageio, and ffmpeg sit: about 1,090 files
-and 186 MB, 72 MB zipped. The user asked for it on 2026-10-09, once the
+NumPy, MuJoCo, GLFW, tkinter, imageio, and ffmpeg sit: 1,092 files and
+179 MB, 66 MB zipped. The user asked for it on 2026-10-09, once the
 program had served: a program pip makes needs its environment, while the
 folder runs on any Windows machine with a graphics driver. PyInstaller's
 single-file mode was left out: it unpacks itself into a temporary folder at
