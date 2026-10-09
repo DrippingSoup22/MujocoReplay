@@ -765,8 +765,9 @@ settings must send to the GeForce.
 On Windows the tool also comes as programs that need no Python: a folder
 that PyInstaller builds from `packaging/MujocoReplay.spec`, holding
 `MujocoReplay.exe`, the window without a console, as the program above
-opens it, and `mujoco-replay.exe`, the command, with `_internal` beside
-them, where Python, NumPy, MuJoCo, GLFW, tkinter, imageio, and ffmpeg sit:
+opens it, and `MujocoReplay-console.exe`, the same command with a console
+window, for a terminal and for videos, with `_internal` beside them, where
+Python, NumPy, MuJoCo, GLFW, tkinter, imageio, and ffmpeg sit:
 1,093 files and 186 MB, 72 MB zipped. The user asked for it on 2026-10-09,
 once the program had served: a program pip makes needs its environment,
 while the folder runs on any Windows machine with a graphics driver.
@@ -774,8 +775,15 @@ PyInstaller's single-file mode was left out: it unpacks itself into a
 temporary folder at every start, which for this size takes seconds, and the
 two programs would each carry a copy. The two are built from one recipe and
 share the folder, as pip makes both from one install; only the console tells
-them apart. In a folder, the program is the process that draws, so Windows'
-graphics settings take `MujocoReplay.exe` itself.
+them apart, and the icon, which only the window program carries. The
+console program was first `mujoco-replay.exe`, the command's name, with the
+icon too: with the extensions Windows hides, the two read as `MujocoReplay`
+and `mujoco-replay` under one icon, and a double-click on the console
+program opens its console window, empty, beside the window, which is what
+the user met at the first start of the zip. Its name now says what it is,
+and it looks like no application.
+In a folder, the program is the process that draws, so Windows' graphics
+settings take `MujocoReplay.exe` itself.
 
 The recipe adds what PyInstaller's analysis does not find on its own.
 MuJoCo loads its library and its plugins from its package's folder, and

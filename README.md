@@ -122,12 +122,16 @@ On Windows the tool needs no Python at all: download
 [Windows executable](https://github.com/DrippingSoup22/MujocoReplay/actions/workflows/executable.yml)
 workflow (open the run; the zip is under Artifacts at the bottom of its
 page, for anyone signed in to GitHub, and is kept 90 days), unzip it
-anywhere, and start `MujocoReplay.exe` in the `MujocoReplay` folder. It is
-the window as Use describes it, with the same keys, panel, and remembered
-settings, which it shares with an installed copy. `mujoco-replay.exe`
-beside it is the command, for a terminal and for videos
-(`mujoco-replay.exe render RECORDING.npz --out replay.mp4`). Keep the folder
-whole: the programs run from the files in `_internal` next to them.
+anywhere, and start `MujocoReplay.exe` in the `MujocoReplay` folder, the
+program with the icon. It is the window as Use describes it, with the same
+keys, panel, and remembered settings, which it shares with an installed
+copy. `MujocoReplay-console.exe` beside it, without an icon, is the same
+program with a console window, for a terminal, where it prints what it does
+and why it fails, and for videos
+(`.\MujocoReplay-console.exe render RECORDING.npz --out replay.mp4`); started
+with a double-click, it opens a console window beside the window, as it is
+meant to. Keep the folder whole: the programs run from the files in
+`_internal` next to them.
 
 The programs are not signed, so the first start may bring Windows' "Windows
 protected your PC": More info, then Run anyway. They carry the icon, so a
