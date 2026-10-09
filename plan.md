@@ -595,6 +595,15 @@ request: the window and a replay of Centipede's model, from stand-in
 recordings simulated from the model with an open-loop gait, since no real
 run's recordings are in the container.
 
+The user then found that the camera stayed where it was when another world
+was highlighted, so that the centipede just picked could be out of the
+picture. Highlighting a world, with B, Shift+B, the panel's stepper, or a
+double-click, now brings the camera to it, keeping its distance and angle,
+and keeps it following if it followed. A test holds it, and fails without
+the change; in the window, driven under the virtual display with the early
+stand-in zoomed in at its last frame, three presses of B centred the camera
+on the worlds of ranks 2, 3, and 4 in turn.
+
 ## Status
 
 | Stage | Status |

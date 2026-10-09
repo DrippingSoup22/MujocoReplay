@@ -283,7 +283,7 @@ that frame (`Playback.seek`).
 | N, P | Show the next or previous tab's file, round from the end, at the same frame |
 | Ctrl+Tab, Ctrl+Shift+Tab | The same, as in an editor |
 | Ctrl+W | Close the tab shown |
-| B, Shift+B | Highlight the next or previous world of the file, by rank, drawn or not |
+| B, Shift+B | Highlight the next or previous world of the file, by rank, drawn or not, and look at it |
 | G | Hide the ghosts, or show them again at their strength |
 | M | Show or hide the markers |
 | V | Reset the view: frame every drawn world, and the highlighted world's rings, from a raised angle |
@@ -311,8 +311,9 @@ with the right drag pans in the horizontal plane. The wheel zooms in when
 turned away from the user, as in most programs (MuJoCo's own viewer does the
 opposite). The camera stays at least 2° above the horizon, so it cannot slip
 under the floor, and panning switches following off, since following would
-undo it. A double-click on a world highlights it (`mjv_select` names the shape
-under the cursor, hence its copy); the timeline takes clicks and drags.
+undo it. A double-click on a world highlights it and brings the camera to
+it (`mjv_select` names the shape under the cursor, hence its copy); the
+timeline takes clicks and drags.
 
 ## Tabs
 
@@ -443,7 +444,12 @@ on the highlighted world's centre; `F` keeps the camera's look-at point on it
 every frame, following the highlight as it moves, and leaves the camera where
 it stands when switched off. This is what MuJoCo's tracking camera
 (`mjCAMERA_TRACKING`) does for one body, but a world may have several root
-bodies. The camera is independent of playback. In the window it is kept when
+bodies. Highlighting another world, with B, Shift+B, the panel's stepper,
+or a double-click, brings the camera to it as `C` does, keeping its distance
+and its angle, and keeps it following if it followed: the world just picked
+may lie far from where the camera looked, even outside the picture, and the
+user found on 2026-10-09 that the camera did not go with the pick. The
+camera is independent of playback. In the window it is kept when
 another file of the same model is shown, and reframed for a file of another
 model; a video keeps it while consecutive files share a composite, and frames
 each new composite.

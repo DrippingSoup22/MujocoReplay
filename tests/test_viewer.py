@@ -200,6 +200,27 @@ def test_the_highlight_reaches_every_world_each_in_place_of_its_bands_best(
     viewer.renderer.close()
 
 
+def test_highlighting_another_world_brings_the_camera_to_it(window, make_recording):
+    recording = make_recording(worlds=3, score=[3, 2, 1])
+    viewer = Viewer(window, Settings(worlds=3, cache=False), 0.3)
+    viewer.load([recording])
+    camera, scene = viewer.renderer.camera, viewer.scene
+    camera.lookat[:] = (5.0, 5.0, 5.0)  # looking elsewhere, as after a pan
+    angle = (camera.distance, camera.azimuth, camera.elevation)
+
+    viewer._act("next world")  # B, or the panel's stepper
+    second = scene.world_centre(scene.highlight)
+    looked = camera.lookat.copy()
+    viewer.renderer.set_follow(True)
+    viewer._highlight(int(scene.worlds[0]))  # a double-click on the best world
+
+    assert scene.highlight == 0 and np.allclose(looked, second)
+    assert np.allclose(camera.lookat, scene.world_centre(0))
+    assert (camera.distance, camera.azimuth, camera.elevation) == angle
+    assert viewer.renderer.follow  # following still, as before the click
+    viewer.renderer.close()
+
+
 def test_a_world_whose_id_another_world_shares_can_be_highlighted_too(
     window, make_recording
 ):

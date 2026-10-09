@@ -77,7 +77,7 @@ moment:
 | **← →** | Step back, step forward |
 | **↑ ↓** | Faster, slower |
 | **N**, **P** | Next, previous tab |
-| **B**, double-click | Highlight another world |
+| **B**, double-click | Highlight another world, and look at it |
 | Drag, right-drag, wheel | Rotate, pan, zoom |
 | **V** | Reset the view |
 | **L** | Loop the file |

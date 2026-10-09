@@ -916,10 +916,14 @@ class Viewer:
         self._highlight(int(worlds[place % len(worlds)]))
 
     def _highlight(self, world: int) -> None:
-        """Highlight a world of the file, and keep it highlighted in other files.
+        """Highlight a world of the file, keep it highlighted in other files,
+        and bring the camera to it.
 
         A world that is not drawn takes the place of the best world of its
-        band, on the same composite, so the count drawn stays as set.
+        band, on the same composite, so the count drawn stays as set. The
+        camera keeps its distance and angle, and goes on following the
+        highlight if it did; the world just picked may lie far from where it
+        looked.
         """
         scene = self.scene
         self._picked = int(scene.recording.world_ids[world])
@@ -928,6 +932,7 @@ class Viewer:
             scene.show(scene.recording, worlds, scene.frame_index)
             self.renderer.show(scene)  # another picture, the same model
         scene.set_highlight(int(np.flatnonzero(worlds == world)[0]))
+        self.renderer.look_at_highlight()
 
     def _toggle_markers(self) -> None:
         self.renderer.markers_visible = not self.renderer.markers_visible
