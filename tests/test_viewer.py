@@ -1,5 +1,9 @@
 """Tests for the window: files dropped and played, the tabs, the settings."""
 
+import subprocess
+import sys
+from pathlib import Path
+
 import glfw
 import numpy as np
 import pytest
@@ -7,7 +11,7 @@ import pytest
 from mujoco_replay import cli, ui
 from mujoco_replay.recording import Recording, write_recording
 from mujoco_replay.settings import Settings, load_settings
-from mujoco_replay.viewer import Viewer
+from mujoco_replay.viewer import FilePicker, Viewer
 
 
 @pytest.fixture
@@ -450,3 +454,28 @@ def test_quitting_asks_first_and_only_the_quit_button_or_enter_quits(window):
 
     assert glfw.window_should_close(window)
     viewer.renderer.close()
+
+
+def test_the_file_picker_runs_the_command_again_and_reads_the_paths_it_wrote(
+    monkeypatch,
+):
+    commands = []
+
+    class Picker:  # in place of the process: two files chosen at once
+        returncode = 0
+
+        def __init__(self, command, **options):
+            commands.append(command)
+            Path(command[-1]).write_text("a.npz\nb \u00e9.npz\n", encoding="utf-8")
+
+        def poll(self):
+            return 0
+
+    monkeypatch.setattr(subprocess, "Popen", Picker)
+    assert FilePicker().poll() == ["a.npz", "b \u00e9.npz"]
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    FilePicker().close()
+
+    assert commands[0][:4] == [sys.executable, "-m", "mujoco_replay", cli.PICK_FILES]
+    assert commands[1][:2] == [sys.executable, cli.PICK_FILES]  # it runs itself
+    assert not any(Path(command[-1]).exists() for command in commands)

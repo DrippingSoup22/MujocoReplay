@@ -25,11 +25,17 @@ from mujoco_replay.recording import (
 from mujoco_replay.selection import MAX_WORLDS, choose_worlds
 from mujoco_replay.settings import PRESETS, load_settings, save_settings, user_folder
 
+# The window shows the system's file picker by running the command again, in a
+# process of its own, with this and a file to write the chosen paths into.
+PICK_FILES = "--pick-files"
+
 
 def main(arguments: list[str] | None = None) -> int:
     """Parse the command line and run the chosen subcommand."""
-    parser = build_parser()
     raw = list(sys.argv[1:] if arguments is None else arguments)
+    if len(raw) == 2 and raw[0] == PICK_FILES:
+        return pick_files(raw[1])
+    parser = build_parser()
     if not raw or raw[0] not in ("view", "render", "-h", "--help"):
         raw.insert(0, "view")
     options = parser.parse_args(raw)
@@ -92,6 +98,36 @@ def main(arguments: list[str] | None = None) -> int:
     except (RecordingError, RuntimeError, OSError) as error:  # OSError: --out
         print(f"mujoco-replay: {error}", file=sys.stderr)
         return 1
+
+
+def pick_files(output: str) -> int:
+    """Show the system's file picker, tkinter's, and write the chosen paths
+    into ``output``, one per line in UTF-8.
+
+    The window runs this in a process of its own, which keeps tkinter's event
+    loop apart from GLFW's. A picker that cannot open, as without tkinter,
+    puts one line on the error stream, which the window reads as UTF-8 and
+    shows.
+    """
+    if sys.stderr is not None:
+        sys.stderr.reconfigure(encoding="utf-8")
+    try:
+        import tkinter
+        from tkinter import filedialog
+
+        root = tkinter.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        paths = filedialog.askopenfilenames(
+            parent=root,
+            title="Open recordings (Ctrl+click or Shift+click picks several)",
+            filetypes=[("Recordings", "*.npz"), ("All files", "*.*")],
+        )
+    except Exception as error:  # the window says why, from the error stream
+        print(f"{type(error).__name__}: {error}", file=sys.stderr)
+        return 1
+    Path(output).write_text("\n".join(paths), encoding="utf-8")
+    return 0
 
 
 def drawn_worlds(

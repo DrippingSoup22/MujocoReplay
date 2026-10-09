@@ -7,3 +7,5 @@ archive/
 typings/
 *.mp4
 MUJOCO_LOG.TXT
+build/
+dist/

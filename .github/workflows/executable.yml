@@ -1,0 +1,76 @@
+# The Windows executable: the programs in one folder that runs without Python,
+# zipped. PyInstaller builds for the system it runs on, so one of GitHub's
+# Windows machines builds it, runs the tests, and then checks the programs as
+# a person would use them (packaging/check.py). The zip, and the checks'
+# screenshots, are kept on the run's page under Artifacts.
+name: Windows executable
+
+on:
+  push:
+    branches: [main, claude/executable]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      # Mesa's software OpenGL stands in for the graphics card these machines
+      # lack, for the tests and the checks only; the zip never holds it.
+      MESA: "26.2.4"
+      GALLIUM_DRIVER: llvmpipe
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install the package and PyInstaller
+        run: python -m pip install ".[video]" pyinstaller==6.22.3 pytest
+
+      - name: Build the executable
+        run: python -m PyInstaller --noconfirm packaging/MujocoReplay.spec
+
+      - name: Zip it
+        run: |
+          $mesa = Get-ChildItem dist\MujocoReplay -Recurse -Include opengl32.dll, libgallium_wgl.dll
+          if ($mesa) { throw "The build holds Mesa's OpenGL: $mesa" }
+          7z a -tzip MujocoReplay-windows.zip .\dist\MujocoReplay
+
+      - name: Get Mesa's software OpenGL
+        run: |
+          $archive = "mesa3d-$env:MESA-release-msvc.7z"
+          curl.exe -sSfL -o $archive "https://github.com/pal1000/mesa-dist-win/releases/download/$env:MESA/$archive"
+          7z e -y -omesa $archive x64\opengl32.dll x64\libgallium_wgl.dll
+          foreach ($name in "opengl32.dll", "libgallium_wgl.dll") {
+            if (-not (Test-Path mesa\$name)) { throw "Mesa's archive has no x64\$name" }
+          }
+
+      - name: Run the tests
+        run: |
+          Copy-Item mesa\*.dll (Split-Path (Get-Command python).Source)
+          python -m pytest -q
+
+      - name: Check the executable
+        run: |
+          Copy-Item dist\MujocoReplay check -Recurse
+          Copy-Item mesa\*.dll check
+          python packaging/check.py check --screenshots screenshots
+
+      - name: Keep the zip
+        uses: actions/upload-artifact@v7
+        with:
+          path: MujocoReplay-windows.zip
+          archive: false
+
+      - name: Keep the screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: screenshots
+          path: screenshots
+          if-no-files-found: ignore

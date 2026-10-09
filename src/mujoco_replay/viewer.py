@@ -21,12 +21,14 @@ import time
 import warnings
 from collections import deque
 from dataclasses import fields, replace
+from pathlib import Path
 
 import glfw
 import mujoco
 import numpy as np
 
 from mujoco_replay import icon, ui
+from mujoco_replay.cli import PICK_FILES
 from mujoco_replay.playback import DEFAULT_SECONDS_PER_FRAME, Playback
 from mujoco_replay.recording import (
     Recording,
@@ -73,23 +75,6 @@ EMPTY_WORLD = """
     <geom name="floor" type="plane" size="4 4 0.05" material="grid"/>
   </worldbody>
 </mujoco>
-"""
-# The file picker, run in a process of its own; it prints the chosen paths.
-PICKER = """
-import sys
-sys.stdout.reconfigure(encoding="utf-8")
-sys.stderr.reconfigure(encoding="utf-8")
-import tkinter
-from tkinter import filedialog
-root = tkinter.Tk()
-root.withdraw()
-root.attributes("-topmost", True)
-paths = filedialog.askopenfilenames(
-    parent=root,
-    title="Open recordings (Ctrl+click or Shift+click picks several)",
-    filetypes=[("Recordings", "*.npz"), ("All files", "*.*")],
-)
-print("\\n".join(paths))
 """
 # Keys that type no character.
 KEYS = {
@@ -216,23 +201,28 @@ def run(
 
 
 class FilePicker:
-    """The system's file picker, shown by tkinter in a process of its own.
+    """The system's file picker, shown in a process of its own.
 
-    Its own process keeps tkinter's event loop apart from GLFW's, and the
-    window goes on drawing while the picker is open. The process writes into
-    files rather than pipes: a pipe it filled before exiting would hold it
-    open for good, and the files take any path as UTF-8.
+    The window runs the command again with ``--pick-files`` and a file to
+    write the chosen paths into: an executable runs itself, and otherwise
+    Python runs the package, since an executable's ``sys.executable`` is the
+    executable. Its own process keeps tkinter's event loop apart from GLFW's,
+    and the window goes on drawing while the picker is open. Files, not pipes,
+    carry the paths and the errors: a pipe that the process filled before
+    exiting would hold it open for good, and a file takes any path as UTF-8.
     """
 
     def __init__(self) -> None:
         flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-        self._output, self._errors = (
-            tempfile.TemporaryFile("w+", encoding="utf-8", errors="replace")
-            for _ in range(2)
-        )
+        handle, self._chosen = tempfile.mkstemp(prefix="mujoco-replay-", suffix=".txt")
+        os.close(handle)
+        self._errors = tempfile.TemporaryFile("w+", encoding="utf-8", errors="replace")
+        program = [sys.executable]
+        if not getattr(sys, "frozen", False):
+            program += ["-m", "mujoco_replay"]
         self._process = subprocess.Popen(
-            [sys.executable, "-c", PICKER],
-            stdout=self._output,
+            [*program, PICK_FILES, self._chosen],
+            stdout=subprocess.DEVNULL,
             stderr=self._errors,
             creationflags=flags,
         )
@@ -241,28 +231,28 @@ class FilePicker:
         """The chosen paths once the picker has closed; ``None`` while it is open."""
         if self._process.poll() is None:
             return None
-        output, errors = (self._read(file) for file in (self._output, self._errors))
+        self._errors.seek(0)
+        errors = self._errors.read()
+        try:
+            chosen = Path(self._chosen).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            chosen = ""
+        self.close()
         if self._process.returncode:
             reason = (errors.strip().splitlines() or ["no reason given"])[-1]
             raise RuntimeError(
                 f"The file picker could not open ({reason}); "
                 "drop recordings onto the window instead."
             )
-        return [line for line in output.splitlines() if line.strip()]
+        return [line for line in chosen.splitlines() if line.strip()]
 
     def close(self) -> None:
         if self._process.poll() is None:
             self._process.kill()
             self._process.wait()
-        self._output.close()
         self._errors.close()
-
-    @staticmethod
-    def _read(file) -> str:
-        file.seek(0)
-        text = file.read()
-        file.close()
-        return text
+        with contextlib.suppress(OSError):
+            os.unlink(self._chosen)
 
 
 class Viewer:

@@ -22,8 +22,13 @@ MB_ICONERROR, MB_SETFOREGROUND, MB_TOPMOST = 0x10, 0x10000, 0x40000
 
 
 def main() -> int:
-    """Run the command; without a console, show why it failed, if it did."""
-    if sys.stderr is not None:
+    """Run the command; without a console, show why it failed, if it did.
+
+    The file picker's process, which the window starts by running the
+    program again, reports to the window instead of in a message box.
+    """
+    picker = sys.argv[1:2] == ["--pick-files"]  # cli.PICK_FILES, before cli loads
+    if sys.stderr is not None or picker:
         from mujoco_replay import cli
 
         return cli.main()

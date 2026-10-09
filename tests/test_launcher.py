@@ -73,3 +73,12 @@ def test_without_a_console_a_clean_run_shows_nothing(monkeypatch, shown):
     monkeypatch.setattr(cli, "main", lambda: 0)
     assert launcher.main() == 0
     assert shown == []
+
+
+def test_without_a_console_the_file_pickers_process_is_the_command(monkeypatch, shown):
+    """The window reads why the picker failed; a message box would hide it."""
+    no_console(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["MujocoReplay", cli.PICK_FILES, "chosen.txt"])
+    monkeypatch.setattr(cli, "main", lambda: 1)
+    assert launcher.main() == 1
+    assert shown == []
