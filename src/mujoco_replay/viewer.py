@@ -57,7 +57,8 @@ DOUBLE_CLICK = 0.4  # seconds between the presses of a double-click, at most
 # nearest.
 ICON_SIZES = (16, 32, 48, 64)
 # Windows groups a window by this name on the taskbar, with the window's icon,
-# instead of with every other Python program under Python's.
+# instead of with every other Python program under Python's; see
+# _name_for_the_taskbar.
 APP_ID = "MujocoReplay.Viewer"
 # The world shown before any recording: a floor under a sky, as Centipede's.
 EMPTY_WORLD = """
@@ -173,11 +174,7 @@ def run(
     if not glfw.init():
         raise RuntimeError("GLFW cannot start: the window needs a display")
     try:
-        if sys.platform == "win32":
-            import ctypes
-
-            with contextlib.suppress(AttributeError, OSError):
-                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
+        _name_for_the_taskbar()
         glfw.window_hint(glfw.SAMPLES, 0)  # anti-aliasing is drawn offscreen
         glfw.window_hint(glfw.VISIBLE, False)  # shown once in its place
         size, position = _placement(size)
@@ -1176,6 +1173,23 @@ class Viewer:
         """The window's close button asks first, as Q and Esc do."""
         glfw.set_window_should_close(window, False)
         self._act("quit")
+
+
+def _name_for_the_taskbar() -> None:
+    """On Windows, give the process the tool's own name on the taskbar.
+
+    Python runs the tool, and the taskbar would group the window with every
+    other Python program, under Python's icon. An executable is a program of
+    its own, which the taskbar groups by itself, with the icon it carries; a
+    name of its own would only keep its window apart from the program pinned
+    to the taskbar, which has no such name.
+    """
+    if sys.platform != "win32" or getattr(sys, "frozen", False):
+        return
+    import ctypes
+
+    with contextlib.suppress(AttributeError, OSError):
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
 
 
 def _give_icon(window) -> None:

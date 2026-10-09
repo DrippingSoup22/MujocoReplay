@@ -802,7 +802,11 @@ without a console passes it on without its message box, since the window
 shows why a picker failed. And the program without a console has no error
 stream, as under `pythonw`, which the launcher already handles. The settings
 and the cache stay in the user's folders, so the executable and an installed
-copy share them.
+copy share them. The window gives itself no name on the taskbar
+(`MujocoReplay.Viewer`, which Python's process takes): the taskbar groups the
+executable by itself and shows the icon it carries, and a name of its own
+would keep the running window apart from the program pinned to the taskbar,
+two buttons for one program.
 
 GitHub builds the folder on its Windows machines with the workflow
 `.github/workflows/executable.yml`, at each push to `main` (and, while it is

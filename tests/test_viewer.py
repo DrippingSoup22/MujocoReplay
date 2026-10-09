@@ -1,8 +1,10 @@
 """Tests for the window: files dropped and played, the tabs, the settings."""
 
+import ctypes
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import glfw
 import numpy as np
@@ -11,7 +13,7 @@ import pytest
 from mujoco_replay import cli, ui
 from mujoco_replay.recording import Recording, write_recording
 from mujoco_replay.settings import Settings, load_settings
-from mujoco_replay.viewer import FilePicker, Viewer
+from mujoco_replay.viewer import APP_ID, FilePicker, Viewer, _name_for_the_taskbar
 
 
 @pytest.fixture
@@ -479,3 +481,19 @@ def test_the_file_picker_runs_the_command_again_and_reads_the_paths_it_wrote(
     assert commands[0][:4] == [sys.executable, "-m", "mujoco_replay", cli.PICK_FILES]
     assert commands[1][:2] == [sys.executable, cli.PICK_FILES]  # it runs itself
     assert not any(Path(command[-1]).exists() for command in commands)
+
+
+def test_the_window_names_itself_on_the_taskbar_unless_it_is_an_executable(
+    monkeypatch,
+):
+    named = []
+    shell32 = SimpleNamespace(SetCurrentProcessExplicitAppUserModelID=named.append)
+    monkeypatch.setattr(
+        ctypes, "windll", SimpleNamespace(shell32=shell32), raising=False
+    )
+    monkeypatch.setattr(sys, "platform", "win32")
+    _name_for_the_taskbar()
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    _name_for_the_taskbar()
+
+    assert named == [APP_ID]  # Python's process, and not the executable's
