@@ -48,7 +48,7 @@ blob anyway.
 | `ui.py` | `Panel`: the side panel's rows, their layout, drawing, and clicks; `TabBar` and `tab_names`: the tabs of the open files; the ASCII text MuJoCo's fonts draw | MuJoCo |
 | `viewer.py` | The application: the window, the empty world, opening files in tabs, the panel's actions, the keys and the mouse, the main loop that draws only on change | GLFW, MuJoCo, NumPy; imported only by the `view` command |
 | `video.py` | Offscreen rendering of a playlist to an MP4 | `imageio`, `imageio-ffmpeg`, MuJoCo, NumPy; imported only by the `render` command, so a missing `video` extra fails before any work |
-| `cli.py`, `__main__.py` | The `mujoco-replay` command and `python -m mujoco_replay` | argparse, NumPy; the window and video modules inside the commands |
+| `cli.py`, `__main__.py` | The `mujoco-replay` command and `python -m mujoco_replay`, and the file picker's process (`--pick-files`) | argparse, NumPy; the window and video modules inside the commands, tkinter inside the picker |
 | `launcher.py` | The `MujocoReplay` program: the command without a console window, its failures shown in a message box | The standard library; the command inside `main` |
 | `icon.py` | The application's icon: pixel art kept as text, scaled by whole pixels, and written as a Windows icon file by `python -m mujoco_replay.icon` | NumPy |
 
@@ -574,21 +574,24 @@ came or went. Between such moments the main loop sleeps in
 
 The window opens on an empty world: a checkered floor under a sky, in
 Centipede's colours, with the line "Open recordings (O), or drop .npz files
-here". Recordings come from the command line, from the panel's Open button
-or the `+` after the tabs, which show the system's file picker, or from files
+here". Recordings come from the command line, from the panel's Open button or
+the `+` after the tabs, which show the system's file picker, or from files
 dropped onto the window (GLFW's drop callback), each into a tab of its own
-([Tabs](#tabs)). The picker is tkinter's, run in a process of its own,
-which takes several files at once (Ctrl+click or Shift+click, as its title
-says) and prints the chosen paths in UTF-8 into a temporary file: that keeps
-tkinter's event loop apart from GLFW's, the window keeps drawing while the
-picker is open, and no pipe can fill and hold the picker open, which a few
-dozen paths would do on Windows; where tkinter is missing, a message says so
-and points to dropping. Several files picked or dropped open in the order of
-their names, numbers by value (`cycle_2` before `cycle_10`). A file that cannot be
-read or composed is reported as a message at the top of the window, and the
-window goes on showing what it showed: a file whose model fails is closed
-when its tab is first shown, and the file shown before comes back, paused at
-the frame it showed.
+([Tabs](#tabs)). The picker is tkinter's, which takes several files at once
+(Ctrl+click or Shift+click, as its title says), run in a process of its own:
+the window runs the command again with the hidden option `--pick-files` and a
+temporary file, into which the command writes the chosen paths in UTF-8. The
+executable runs itself, since its `sys.executable` is the program ([The
+executable](#the-executable)), and otherwise Python runs the package. That
+keeps tkinter's event loop apart from GLFW's, the window keeps drawing while
+the picker is open, and no pipe can fill and hold the picker open, which a few
+dozen paths would do on Windows; where tkinter is missing, the picker's one
+line of reason reaches the window, which says so and points to dropping.
+Several files picked or dropped open in the order of their names, numbers by
+value (`cycle_2` before `cycle_10`). A file that cannot be read or composed is
+reported as a message at the top of the window, and the window goes on showing
+what it showed: a file whose model fails is closed when its tab is first
+shown, and the file shown before comes back, paused at the frame it showed.
 
 The side panel, on the left, is drawn with MuJoCo's own overlay functions
 (`mjr_rectangle`, `mjr_label`), so the viewer needs nothing beyond MuJoCo and
@@ -757,11 +760,67 @@ The process that draws is the base Python's `pythonw.exe`, which the
 environment's own `pythonw.exe` starts, so that is the one Windows' graphics
 settings must send to the GeForce.
 
+## The executable
+
+On Windows the tool also comes as programs that need no Python: a folder
+that PyInstaller builds from `packaging/MujocoReplay.spec`, holding
+`MujocoReplay.exe`, the window without a console, as the program above
+opens it, and `mujoco-replay.exe`, the command, with `_internal` beside
+them, where Python, NumPy, MuJoCo, GLFW, tkinter, imageio, and ffmpeg sit:
+1,093 files and 186 MB, 72 MB zipped. The user asked for it on 2026-10-09,
+once the program had served: a program pip makes needs its environment,
+while the folder runs on any Windows machine with a graphics driver.
+PyInstaller's single-file mode was left out: it unpacks itself into a
+temporary folder at every start, which for this size takes seconds, and the
+two programs would each carry a copy. The two are built from one recipe and
+share the folder, as pip makes both from one install; only the console tells
+them apart. In a folder, the program is the process that draws, so Windows'
+graphics settings take `MujocoReplay.exe` itself.
+
+The recipe adds what PyInstaller's analysis does not find on its own.
+MuJoCo loads its library and its plugins from its package's folder, and
+GLFW's Python package its library, with the Visual C++ 2013 runtime it
+needs on Windows, from its own, so both are collected in place; imageio
+reads its version from its package's metadata, which is copied. PyInstaller
+brings the newer Visual C++ runtime itself. The icon is written from
+`icon.py` into the build folder and built into both programs, so that
+Explorer, the taskbar, and a shortcut show it without an icon file.
+
+Two things differ in a frozen program. `sys.executable` is the program, not
+Python, so the file picker cannot be started with `python -c`: the window
+runs the program again with `--pick-files` ([The application](#the-application)),
+which the command takes before reading any other option, and the program
+without a console passes it on without its message box, since the window
+shows why a picker failed. And the program without a console has no error
+stream, as under `pythonw`, which the launcher already handles. The settings
+and the cache stay in the user's folders, so the executable and an installed
+copy share them.
+
+GitHub builds the folder on its Windows machines with the workflow
+`.github/workflows/executable.yml`, at each push to `main` (and, while it is
+being built, to the `claude/executable` branch) or when started by hand: it
+installs the package with its `video` extra and PyInstaller, pinned to
+6.22.3, builds, zips the folder, runs the tests, and checks the build with
+`packaging/check.py`. The check runs the programs as a person would, on a
+recording of its own, an orange box in three worlds: the help; a video,
+whose every frame must show the box; the window, whose screenshot must show
+the box, closed with its close button and Y; and the file picker, opened
+and cancelled. The machines have no graphics card, so the tests and the
+check borrow Mesa's software OpenGL, its `opengl32.dll` and
+`libgallium_wgl.dll` from `mesa-dist-win` put next to the programs of a copy
+of the folder, with `GALLIUM_DRIVER=llvmpipe`; the zip never holds them,
+and the workflow fails if the build does. The zip and the screenshots are
+kept as the run's artifacts. The programs are not signed, so Windows'
+SmartScreen warns at the first start of a downloaded copy. The same recipe
+builds a Linux folder, which the container used to check the programs
+before Windows did; only the Windows folder is published.
+
 ## Dependencies
 
 `mujoco==3.12.0` (the version the composition was verified with), `numpy`,
 and `glfw`, which MuJoCo also brings but the window imports directly.
 Optional `video`: `imageio`, `imageio-ffmpeg`. Development: `pytest`, `ruff`.
+The executable: `pyinstaller` 6.22.3, for the build only.
 Python 3.11 to 3.14: MuJoCo 3.12.0 has no wheels for newer versions.
 
 ## Verification without a display
@@ -801,3 +860,12 @@ one checked the documents, a fresh install, and the Windows code paths by
 reading. Screenshots of the window and offscreen frames in both modes made
 the visual review. Their findings and the fixes are listed in `plan.md`
 under R7, and the reasons for each change are in the sections above.
+
+In stage R13 the executable was checked where the container cannot reach:
+on GitHub's Windows machines, which have no graphics card either. Mesa's
+software OpenGL drew there too, for the tests and for `packaging/check.py`,
+which started the built programs, read the video back, found the window and
+the file picker by their titles through Windows' own calls, measured the
+box in a screenshot of the window, and closed both as a person would. The
+screenshots stay with the run; the user checks the programs on a real
+display.

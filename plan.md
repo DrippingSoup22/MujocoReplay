@@ -1,12 +1,13 @@
 # Development plan
 
-This plan builds MujocoReplay in twelve stages; the user asked for the sixth
+This plan builds MujocoReplay in thirteen stages; the user asked for the sixth
 on 2026-10-07, once the first five were built, for the seventh, a full review,
 once the sixth was, for the eighth, a program to start it from, once the
 seventh was, and for the ninth, any world on its own and new defaults, on
 2026-10-08; the tenth, rings and radii that change, Centipede asked for on
 the user's behalf the same day, and the user asked for the eleventh, tabs,
-and the twelfth, an icon with Loop and Play next, on 2026-10-09. It is paired with Stage 7 of the
+the twelfth, an icon with Loop and Play next, and the thirteenth, an
+executable, on 2026-10-09. It is paired with Stage 7 of the
 sibling `Centipede` project (`../Centipede/plan.md`), which records the files
 this tool replays. The format is fixed in
 [docs/recording-format.md](docs/recording-format.md) and the design in
@@ -529,6 +530,42 @@ file picker already took several files at once (tkinter's
 says. A switch that lands past a shorter file's end now pauses there, so
 that neither switch leaves that file at once.
 
+### R13 — The executable
+
+Asked by the user on 2026-10-09, after R12, on a branch of its own
+(`claude/executable`): an actual executable instead of only the program pip
+makes, so that the tool runs without Python installed. R8 had left it for
+later.
+
+**Builds:** `packaging/MujocoReplay.spec`, PyInstaller's recipe for one
+folder with both programs, the window without a console and the command,
+carrying the icon; the file picker run as a hidden `--pick-files` mode of
+the command, since a frozen program's `sys.executable` is the program
+itself; `packaging/check.py`, which checks a built folder as a person would
+use it; `.github/workflows/executable.yml`, which builds the folder on
+GitHub's Windows machines, runs the tests, checks the build, and keeps the
+zip; `tests/test_cli.py`.
+
+**Done when:** the workflow passes on Windows: the tests, and the built
+programs printing their help, writing a video whose frames show the test
+recording's box, opening the window on it, showing the box, and quitting
+when asked, and opening and cancelling the file picker; the zip holds no
+Mesa; the README says where to get the zip and how to build it.
+
+**Result (2026-10-09):** built; the user's check of the zip on a real
+display pending. The first run of the workflow passed: 128 tests on Windows
+(the one that needs Centipede's model skipped), drawing with Mesa's
+software OpenGL, since GitHub's machines have no graphics card; the build
+in 30 seconds, a folder of 1,093 files and 186 MB, zipped to 72 MB; and
+every check: the help, a 90-frame video with the box in each frame, the
+window titled `MujocoReplay - check` with about 29,000 pixels of the box in
+its screenshot, closed by its close button and Y with status 0, and the
+picker, cancelled with nothing chosen. In the container the same recipe
+built a Linux folder first: its window, driven under the virtual display,
+showed the tabs and the scene, the check's help and video passed on it, and
+its picker mode, without tkinter there, ended with the one line of reason
+that the window shows. The zip and the screenshots are the run's artifacts.
+
 ## Status
 
 | Stage | Status |
@@ -545,3 +582,4 @@ that neither switch leaves that file at once.
 | R10 — Rings and radii that change | Built (2026-10-08); the user's check pending |
 | R11 — Tabs | Built (2026-10-09); the user's check pending |
 | R12 — An icon, Loop, and Play next | Built (2026-10-09); the user's check pending |
+| R13 — The executable | Built (2026-10-09); the user's check on Windows pending |

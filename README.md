@@ -15,6 +15,17 @@ overlay shows the facts of the run. The same scene can be rendered to a video.
 
 ## Status
 
+**Stage R13, an executable, built (2026-10-09):** on Windows the tool also
+comes as programs that need no Python installed: a folder with
+`MujocoReplay.exe`, the window, and `mujoco-replay.exe`, the command, which
+GitHub builds and checks on its own Windows machines (see The executable).
+The programs carry the icon themselves, so a shortcut or a pin needs no icon
+file, and the graphics setting for the GeForce takes the program directly.
+On GitHub's machines, which have no graphics card, the tests passed and the
+built programs printed their help, wrote a video, opened the window on a
+test recording and closed it, and opened the file picker; the user's check
+on a real display is pending.
+
 **Stage R12, an icon, Loop, and Play next, built (2026-10-09):** the window
 has an icon of its own, in pixel art: one figure in three worlds, two in
 ghost grey and the best in orange, on a checkered floor, with a play sign,
@@ -89,18 +100,57 @@ recordings.
 | --- | --- |
 | [`plan.md`](plan.md) | The stages that build the tool, each with its checks |
 | [`docs/recording-format.md`](docs/recording-format.md) | The recording file: every key, its shape and meaning, and the writer and reader |
-| [`docs/design.md`](docs/design.md) | How the tool is built: modules, scene composition, world selection, playback, the tabs, overlay, camera, graphics settings, the application and its panel, the cache, video |
+| [`docs/design.md`](docs/design.md) | How the tool is built: modules, scene composition, world selection, playback, the tabs, overlay, camera, graphics settings, the application and its panel, the cache, video, the executable |
 | [`AGENTS.md`](AGENTS.md) | Working rules for coding assistants |
 
 ## Project folders
 
 ```text
 MujocoReplay/
+├─ .github/workflows/   The Windows executable, built and checked by GitHub
 ├─ docs/                Format and design documents
+├─ packaging/           PyInstaller's recipe for the executable, and the check of a built folder
 ├─ src/mujoco_replay/   The package: recording format, selection, scene, playback, renderer, settings, panel, viewer, video, command, program, icon
 ├─ tests/               Automated tests, one file per module; shared helpers in conftest.py
 └─ archive/             Superseded material; local only
 ```
+
+## The executable
+
+On Windows the tool needs no Python at all: download
+`MujocoReplay-windows.zip` from the latest successful run of the
+[Windows executable](https://github.com/DrippingSoup22/MujocoReplay/actions/workflows/executable.yml)
+workflow (open the run; the zip is under Artifacts at the bottom of its
+page, for anyone signed in to GitHub, and is kept 90 days), unzip it
+anywhere, and start `MujocoReplay.exe` in the `MujocoReplay` folder. It is
+the window as Use describes it, with the same keys, panel, and remembered
+settings, which it shares with an installed copy. `mujoco-replay.exe`
+beside it is the command, for a terminal and for videos
+(`mujoco-replay.exe render RECORDING.npz --out replay.mp4`). Keep the folder
+whole: the programs run from the files in `_internal` next to them.
+
+The programs are not signed, so the first start may bring Windows' "Windows
+protected your PC": More info, then Run anyway. They carry the icon, so a
+shortcut (right-click `MujocoReplay.exe`, Show more options, Send to,
+Desktop) or a pin to the taskbar shows it with nothing more. Files dropped
+onto the program or its shortcut open in tabs, and recordings open with a
+double-click once a recording's Open with, Choose another app, is pointed at
+`MujocoReplay.exe` with Always. On a laptop with two graphics chips, add
+`MujocoReplay.exe` in Settings, System, Display, Graphics, and choose High
+performance.
+
+GitHub builds the zip at every push to `main` (and, for now, to the
+`claude/executable` branch), or when Run workflow is pressed on the
+workflow's page. To build the folder yourself, in the environment of Setup:
+
+```powershell
+python -m pip install pyinstaller==6.22.3
+python -m PyInstaller --noconfirm packaging/MujocoReplay.spec
+python packaging/check.py dist\MujocoReplay
+```
+
+The second line writes `dist\MujocoReplay` in about a minute; the third
+runs the built programs on a test recording and says what it saw.
 
 ## Setup
 
