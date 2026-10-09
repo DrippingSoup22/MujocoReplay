@@ -17,14 +17,18 @@ overlay shows the facts of the run. The same scene can be rendered to a video.
 
 **Stage R13, an executable, built (2026-10-09):** on Windows the tool also
 comes as programs that need no Python installed: a folder with
-`MujocoReplay.exe`, the window, and `mujoco-replay.exe`, the command, which
-GitHub builds and checks on its own Windows machines (see The executable).
-The programs carry the icon themselves, so a shortcut or a pin needs no icon
-file, and the graphics setting for the GeForce takes the program directly.
-On GitHub's machines, which have no graphics card, the tests passed and the
-built programs printed their help, wrote a video, opened the window on a
-test recording and closed it, and opened the file picker; the user's check
-on a real display is pending.
+`MujocoReplay.exe`, the window, and `MujocoReplay-console.exe`, the same
+program with a console window, which GitHub builds and checks on its own
+Windows machines (see The executable). The window program carries the icon
+itself, so a shortcut or a pin needs no icon file, and the graphics setting
+for the GeForce takes the program directly. The user's first start of the
+zip met an empty terminal beside the window: the console program, then
+`mujoco-replay.exe`, carried the same icon under a name that reads the same,
+and opens a console by design. It is renamed and carries no icon now, and
+the check on GitHub's machines, which have no graphics card, starts the
+window program as a double-click does: no console window opened, its icons
+matched the drawing pixel for pixel, and the taskbar showed the icon. The
+user's second check, on a real display, is pending.
 
 **Stage R12, an icon, Loop, and Play next, built (2026-10-09):** the window
 has an icon of its own, in pixel art: one figure in three worlds, two in

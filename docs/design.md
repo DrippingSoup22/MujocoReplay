@@ -812,12 +812,19 @@ GitHub builds the folder on its Windows machines with the workflow
 `.github/workflows/executable.yml`, at each push to `main` (and, while it is
 being built, to the `claude/executable` branch) or when started by hand: it
 installs the package with its `video` extra and PyInstaller, pinned to
-6.22.3, builds, zips the folder, runs the tests, and checks the build with
-`packaging/check.py`. The check runs the programs as a person would, on a
-recording of its own, an orange box in three worlds: the help; a video,
-whose every frame must show the box; the window, whose screenshot must show
-the box, closed with its close button and Y; and the file picker, opened
-and cancelled. The machines have no graphics card, so the tests and the
+6.22.3, builds, zips the folder, runs the tests, and checks the programs
+extracted from the zip with `packaging/check.py`. The check runs them as a
+person would, on a recording of its own, an orange box in three worlds: the
+help; a video, whose every frame must show the box; each program's kind,
+read from its header, windowed or console; the window program started as a
+double-click starts it, with no console window appearing, the icon it
+carries and its window's icons matching `icon.draw` pixel for pixel, its
+screenshot showing the box, and closed with its close button and Y; the
+console program started the same way, whose console window must appear, so
+that the check is known to see one; and the file picker, opened and
+cancelled. The screenshots of the window and the taskbar are kept, and
+printed in the log as base64 too, for a reader who cannot download a run's
+artifacts. The machines have no graphics card, so the tests and the
 check borrow Mesa's software OpenGL, its `opengl32.dll` and
 `libgallium_wgl.dll` from `mesa-dist-win` put next to the programs of a copy
 of the folder, with `GALLIUM_DRIVER=llvmpipe`; the zip never holds them,

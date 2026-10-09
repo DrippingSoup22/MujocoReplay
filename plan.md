@@ -566,6 +566,22 @@ showed the tabs and the scene, the check's help and video passed on it, and
 its picker mode, without tkinter there, ended with the one line of reason
 that the window shows. The zip and the screenshots are the run's artifacts.
 
+The user's first start of the zip met an empty terminal opening with the
+window, and did not see the icon on the taskbar. The window program is
+windowed (PyInstaller's `runw` bootloader, by the build log), so Windows
+opens no console for it; but the console program beside it, then
+`mujoco-replay.exe`, carried the same icon under a name that reads the same
+with Windows' extensions hidden, and a double-click on it opens a console
+window. It is now `MujocoReplay-console.exe`, without an icon. The check now
+starts the programs from the extracted zip as a double-click does: the
+window program opened no console window, the icon it carries and its
+window's big and small icons matched the drawing pixel for pixel, and the
+taskbar button showed the icon, in a screenshot read back from the run's
+log; the console program, started the same way, opened the console window
+the user saw, which shows that the check sees one. The executable also no
+longer names itself on the taskbar (`MujocoReplay.Viewer`), which would
+have kept its window apart from the program pinned there.
+
 ## Status
 
 | Stage | Status |
@@ -582,4 +598,4 @@ that the window shows. The zip and the screenshots are the run's artifacts.
 | R10 — Rings and radii that change | Built (2026-10-08); the user's check pending |
 | R11 — Tabs | Built (2026-10-09); the user's check pending |
 | R12 — An icon, Loop, and Play next | Built (2026-10-09); the user's check pending |
-| R13 — The executable | Built (2026-10-09); the user's check on Windows pending |
+| R13 — The executable | Built (2026-10-09); the console program renamed after the user's first check; the second pending |
