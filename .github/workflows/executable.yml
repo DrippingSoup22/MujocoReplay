@@ -55,11 +55,11 @@ jobs:
           Copy-Item mesa\*.dll (Split-Path (Get-Command python).Source)
           python -m pytest -q
 
-      - name: Check the executable
+      - name: Check the executable, from the zip as it is downloaded
         run: |
-          Copy-Item dist\MujocoReplay check -Recurse
-          Copy-Item mesa\*.dll check
-          python packaging/check.py check --screenshots screenshots
+          7z x -y -ocheck MujocoReplay-windows.zip
+          Copy-Item mesa\*.dll check\MujocoReplay
+          python packaging/check.py check\MujocoReplay --screenshots screenshots --print-screenshots
 
       - name: Keep the zip
         uses: actions/upload-artifact@v7
