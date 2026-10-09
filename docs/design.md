@@ -50,7 +50,7 @@ blob anyway.
 | `video.py` | Offscreen rendering of a playlist to an MP4 | `imageio`, `imageio-ffmpeg`, MuJoCo, NumPy; imported only by the `render` command, so a missing `video` extra fails before any work |
 | `cli.py`, `__main__.py` | The `mujoco-replay` command and `python -m mujoco_replay` | argparse, NumPy; the window and video modules inside the commands |
 | `launcher.py` | The `MujocoReplay` program: the command without a console window, its failures shown in a message box | The standard library; the command inside `main` |
-| `icon.py` | The application's icon, drawn at any size, and written as a Windows icon file by `python -m mujoco_replay.icon` | NumPy |
+| `icon.py` | The application's icon: pixel art kept as text, scaled by whole pixels, and written as a Windows icon file by `python -m mujoco_replay.icon` | NumPy |
 
 `recording` and `selection` are the producer-facing half: Centipede imports
 them to write files. They must stay free of MuJoCo and graphics imports, and a
@@ -728,21 +728,25 @@ failure before the program's own code runs, such as this folder moved away
 from where the editable install points, shows nothing; `mujoco-replay`, run
 in a terminal, prints it.
 
-The window's icon is drawn by `icon.py` when the window opens, at 16 to 64
-pixels, the sizes Windows shows at 100 to 200 % scaling, and given to GLFW;
-windows on macOS and Wayland have none. It shows a centipede, the robot this
-tool was first made for, in front of two grey ghosts of itself, with a
-magenta target and a play button in the panel's blue: the best world among
-the others, replayed, as the user asked for an icon that says what the tool
-is for on 2026-10-09. Its shapes are signed distances, so every size is
-drawn sharp, and the smallest leave out the ghosts and the target. On
+The window's icon comes from `icon.py` when the window opens, at 16 to 64
+pixels, the sizes Windows shows at 100 to 200 % scaling, and is given to
+GLFW; windows on macOS and Wayland have none. It is pixel art: one figure in
+three worlds, two in ghost grey and the best in orange, standing on a
+checkered floor, with a play sign, which is what the window does with any
+model. The user asked on 2026-10-09 for an icon that says what the tool is
+for, then for a simpler one in 8-bit pixel art, about the tool and not one
+model; a first icon, a centipede drawn smooth, gave way to it. The picture
+is kept in the code as 32 rows of letters, one letter a pixel of a small
+palette, with a simpler 16-pixel picture of stick figures, and every size
+repeats whole pixels of one of them: 32, 64, 128, and 256 pixels the full
+picture, 16 and 48 the simpler one, so that no size is blurred. On
 Windows the process names itself `MujocoReplay.Viewer` to the taskbar
 (`SetCurrentProcessExplicitAppUserModelID`) before the window opens, since
 the taskbar would otherwise group the window with every other Python program
 under Python's icon. The `.exe` that pip makes cannot carry an icon, so a
 shortcut takes one from a file: `python -m mujoco_replay.icon` writes
-`MujocoReplay.ico` next to the settings, holding the icon at 16 to 256
-pixels as PNGs, and prints its path for the shortcut's `IconLocation`, as
+`MujocoReplay.ico` next to the settings, holding the icon at those six
+sizes as PNGs, and prints its path for the shortcut's `IconLocation`, as
 the README's shortcut lines do. A pinned shortcut and the window it starts
 may still show as two taskbar buttons, since the shortcut does not carry the
 process's name, as they did before the icon.

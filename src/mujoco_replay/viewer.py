@@ -50,9 +50,10 @@ MESSAGE_SECONDS = 6.0
 IDLE_WAIT = 0.5  # the longest the loop sleeps between looks at the clock
 SCREEN_SHARE = 0.85  # of the screen's free area the window takes, unless sized
 DOUBLE_CLICK = 0.4  # seconds between the presses of a double-click, at most
-# The icon's sizes for the window: Windows shows 16 and 32 pixels at normal
-# density, up to 64 at double; GLFW picks the nearest.
-ICON_SIZES = (16, 24, 32, 48, 64)
+# The icon's sizes for the window, whole multiples of its pixel art: Windows
+# shows 16 and 32 pixels at normal density, up to 64 at double; GLFW picks the
+# nearest.
+ICON_SIZES = (16, 32, 48, 64)
 # Windows groups a window by this name on the taskbar, with the window's icon,
 # instead of with every other Python program under Python's.
 APP_ID = "MujocoReplay.Viewer"

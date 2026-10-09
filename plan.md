@@ -500,8 +500,8 @@ once; a loop that starts an episode again when it ends; and, since the user
 watches a run's recordings one after the other to see the centipede
 progress, a setting that goes on with the next tab by itself.
 
-**Builds:** `icon.py`, the icon drawn with NumPy at any size and written as
-a Windows icon file; the window's icon and, on Windows, its own name on the
+**Builds:** `icon.py`, the icon as pixel art, scaled by whole pixels and
+written as a Windows icon file; the window's icon and, on Windows, its own name on the
 taskbar; `Playback.loop`, and the window's `run_on` following Play next;
 the settings `loop` and `play_next`, saved; the panel's Loop and Play next
 and the `L` key; the file picker's title saying that it takes several
@@ -514,12 +514,14 @@ at its end; the window, driven under a virtual display, carries the icon,
 plays on into the next tab, and comes round from the last.
 
 **Result (2026-10-09):** built; the user's check pending, on Windows in
-particular for the taskbar and the shortcut's icon. 125 tests pass (37 draw
-and skip without OpenGL). The icon shows a centipede, the robot this tool
-was first made for, in front of two grey ghosts of itself, a magenta target,
-and a play button in the panel's blue; the smallest sizes leave out the
-details. Read back from the window on the virtual display (`_NET_WM_ICON`),
-it was there at 16 to 64 pixels. Driven there with three stand-in files,
+particular for the taskbar and the shortcut's icon. 126 tests pass (37 draw
+and skip without OpenGL). The first icon, a centipede drawn smooth with a
+play button, gave way at the user's word to 8-bit pixel art about the tool
+rather than one model: one figure in three worlds, two in ghost grey and
+the best in orange, on a checkered floor, with a play sign; 32 by 32 pixels,
+and a simpler 16 by 16 picture for the smallest sizes, each scaled by whole
+pixels. Read back from the window on the virtual display (`_NET_WM_ICON`),
+the icon was there at its sizes up to 64 pixels. Driven there with three stand-in files,
 Play next took Space at the end of the second tab on into the third, and
 with Loop, the third's end came round to the first, playing throughout. The
 file picker already took several files at once (tkinter's

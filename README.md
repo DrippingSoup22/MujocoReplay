@@ -16,9 +16,10 @@ overlay shows the facts of the run. The same scene can be rendered to a video.
 ## Status
 
 **Stage R12, an icon, Loop, and Play next, built (2026-10-09):** the window
-has an icon of its own, a centipede in front of two grey ghosts of itself,
-with its target and a play button, drawn in code at every size; on Windows
-the taskbar shows it instead of Python's, and a shortcut takes it from the
+has an icon of its own, in pixel art: one figure in three worlds, two in
+ghost grey and the best in orange, on a checkered floor, with a play sign,
+as the window replays any model; on Windows the taskbar shows it instead of
+Python's, and a shortcut takes it from the
 file that `python -m mujoco_replay.icon` writes (see Use). The panel's Loop
 starts the file again when it ends, and Play next goes on with the next tab
 from its start, so that a run's recordings play one after the other by
