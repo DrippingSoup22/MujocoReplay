@@ -15,6 +15,17 @@ overlay shows the facts of the run. The same scene can be rendered to a video.
 
 ## Status
 
+**Stage R12, an icon, Loop, and Play next, built (2026-10-09):** the window
+has an icon of its own, a centipede in front of two grey ghosts of itself,
+with its target and a play button, drawn in code at every size; on Windows
+the taskbar shows it instead of Python's, and a shortcut takes it from the
+file that `python -m mujoco_replay.icon` writes (see Use). The panel's Loop
+starts the file again when it ends, and Play next goes on with the next tab
+from its start, so that a run's recordings play one after the other by
+themselves; both together go round all the tabs, and both are remembered.
+The file picker already took several files at once, with Ctrl+click or
+Shift+click, and now says so in its title.
+
 **Stage R11, tabs, built (2026-10-09):** recordings open in tabs along the
 top of the window, one per file, as an editor shows its files, so that the
 start and the end of a run's training can be compared without opening them
@@ -85,7 +96,7 @@ recordings.
 ```text
 MujocoReplay/
 ├─ docs/                Format and design documents
-├─ src/mujoco_replay/   The package: recording format, selection, scene, playback, renderer, settings, panel, viewer, video, command, program
+├─ src/mujoco_replay/   The package: recording format, selection, scene, playback, renderer, settings, panel, viewer, video, command, program, icon
 ├─ tests/               Automated tests, one file per module; shared helpers in conftest.py
 └─ archive/             Superseded material; local only
 ```
@@ -140,12 +151,15 @@ mujoco-replay render RECORDING.npz --out replay.mp4
 
 (`python -m mujoco_replay` is the same command.) Without files the window
 opens empty: open recordings with the panel's Open button (or `O`, or the `+`
-after the tabs), or drop `.npz` files onto it. Each file opens in a tab of
-its own along the top, in the order of their names, and opening more adds
-tabs: a click on a tab, or N, P, and Ctrl+Tab, shows its file at the same
-frame, so that the start and the end of a run compare moment by moment, and
-a tab's `x`, Ctrl+W, or Close all closes them. The panel on the left sets
-everything else: playback, how many
+after the tabs), where Ctrl+click or Shift+click picks several, or drop
+`.npz` files onto it. Each file opens in a tab of its own along the top, in
+the order of their names, and opening more adds tabs: a click on a tab, or
+N, P, and Ctrl+Tab, shows its file at the same frame, so that the start and
+the end of a run compare moment by moment, and a tab's `x`, Ctrl+W, or Close
+all closes them. The panel's Loop starts a file again when it ends (or `L`),
+and Play next goes on with the next tab, to watch a run's recordings one
+after the other; both together go round all the tabs. The panel on the left
+sets everything else: playback, how many
 worlds are drawn and how strongly the ghosts show, the highlighted world, the
 view, the graphics (Quality, Performance, or single switches), and the
 options; Tab hides it. On a weak graphics card, start in Performance mode
@@ -169,10 +183,14 @@ $desktop = [Environment]::GetFolderPath("Desktop")
 $link = (New-Object -ComObject WScript.Shell).CreateShortcut("$desktop\MujocoReplay.lnk")
 $link.TargetPath = (Get-Command MujocoReplay).Path
 $link.WorkingDirectory = Split-Path $link.TargetPath
+$link.IconLocation = (python -m mujoco_replay.icon)
 $link.Save()
 ```
 
-Right-click the shortcut to pin it to Start or the taskbar. The program
+The icon line writes the application's icon, `MujocoReplay.ico`, next to
+the settings and points the shortcut at it; running the block again gives
+an existing shortcut the icon. Right-click the shortcut to pin it to Start
+or the taskbar. The program
 opens the empty world, or the files dropped onto it or onto its shortcut,
 with the same remembered settings. It runs this folder's code, so a pull
 needs no new install; only a change to `pyproject.toml` needs the

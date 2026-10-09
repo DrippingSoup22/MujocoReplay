@@ -22,7 +22,8 @@ def test_a_preset_names_the_mode_until_one_switch_changes():
 
 def test_saved_settings_come_back_and_a_bad_file_gives_the_defaults(tmp_path):
     path = tmp_path / "folder" / "settings.json"
-    chosen = Settings(worlds=32, cache=False).with_graphics(resolution=50)
+    chosen = Settings(worlds=32, cache=False, loop=True, play_next=True)
+    chosen = chosen.with_graphics(resolution=50)
 
     save_settings(chosen, path)
     assert load_settings(path) == chosen

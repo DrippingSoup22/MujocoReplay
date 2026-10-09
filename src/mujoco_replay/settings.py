@@ -62,6 +62,8 @@ class Settings:
     frame_rate: bool = False
     panel: bool = True
     overlay: bool = True
+    loop: bool = False  # start again at the end
+    play_next: bool = False  # go on with the next tab at the end
 
     @property
     def mode(self) -> str:

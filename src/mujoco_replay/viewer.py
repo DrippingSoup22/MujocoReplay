@@ -11,12 +11,14 @@ next to nothing. GLFW opens the window and delivers the input; only the
 ``view`` command imports this module. docs/design.md lists the keys.
 """
 
+import contextlib
 import math
 import os
 import subprocess
 import sys
 import tempfile
 import time
+import warnings
 from collections import deque
 from dataclasses import fields, replace
 
@@ -24,7 +26,7 @@ import glfw
 import mujoco
 import numpy as np
 
-from mujoco_replay import ui
+from mujoco_replay import icon, ui
 from mujoco_replay.playback import DEFAULT_SECONDS_PER_FRAME, Playback
 from mujoco_replay.recording import (
     Recording,
@@ -48,6 +50,12 @@ MESSAGE_SECONDS = 6.0
 IDLE_WAIT = 0.5  # the longest the loop sleeps between looks at the clock
 SCREEN_SHARE = 0.85  # of the screen's free area the window takes, unless sized
 DOUBLE_CLICK = 0.4  # seconds between the presses of a double-click, at most
+# The icon's sizes for the window: Windows shows 16 and 32 pixels at normal
+# density, up to 64 at double; GLFW picks the nearest.
+ICON_SIZES = (16, 24, 32, 48, 64)
+# Windows groups a window by this name on the taskbar, with the window's icon,
+# instead of with every other Python program under Python's.
+APP_ID = "MujocoReplay.Viewer"
 # The world shown before any recording: a floor under a sky, as Centipede's.
 EMPTY_WORLD = """
 <mujoco model="empty world">
@@ -77,7 +85,7 @@ root.withdraw()
 root.attributes("-topmost", True)
 paths = filedialog.askopenfilenames(
     parent=root,
-    title="Open recordings",
+    title="Open recordings (Ctrl+click or Shift+click picks several)",
     filetypes=[("Recordings", "*.npz"), ("All files", "*.*")],
 )
 print("\\n".join(paths))
@@ -109,6 +117,7 @@ QUIT_CHARACTERS = {"y": "quit now", "q": "quit now", "n": "stay"}
 CHARACTERS = {
     "0": "default speed",
     "r": "restart",
+    "l": "loop",
     "n": "next file",
     "p": "previous file",
     "b": "next world",
@@ -132,6 +141,7 @@ HELP = [
     "0: default speed",
     "Home, End: first, last frame",
     "R: restart the file",
+    "L: loop",
     "N, Ctrl+Tab: next tab",
     "P, Ctrl+Shift+Tab: previous tab",
     "Ctrl+W: close the tab",
@@ -177,12 +187,18 @@ def run(
     if not glfw.init():
         raise RuntimeError("GLFW cannot start: the window needs a display")
     try:
+        if sys.platform == "win32":
+            import ctypes
+
+            with contextlib.suppress(AttributeError, OSError):
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
         glfw.window_hint(glfw.SAMPLES, 0)  # anti-aliasing is drawn offscreen
         glfw.window_hint(glfw.VISIBLE, False)  # shown once in its place
         size, position = _placement(size)
         window = glfw.create_window(*size, "MujocoReplay", None, None)
         if not window:
             raise RuntimeError("GLFW cannot open a window with OpenGL")
+        _give_icon(window)
         if position is not None:
             glfw.set_window_pos(window, *position)
         glfw.show_window(window)
@@ -409,9 +425,14 @@ class Viewer:
             fresh.append((recording, path))
         if not fresh:
             return []
-        if self.playback is None:  # each tab plays on its own
-            speed, now = self.seconds_per_frame, time.monotonic()
-            self.playback = Playback([], speed, now, run_on=False)
+        if self.playback is None:
+            self.playback = Playback(
+                [],
+                self.seconds_per_frame,
+                time.monotonic(),
+                run_on=self.settings.play_next,
+                loop=self.settings.loop,
+            )
         first = len(self.recordings)
         self.recordings.extend(recording for recording, _ in fresh)
         self.paths += [path for _, path in fresh]
@@ -528,6 +549,12 @@ class Viewer:
                 ui.Section("Playback"),
                 ui.Buttons(controls),
                 ui.Stepper("Per frame", per_frame, "faster", "slower"),
+                ui.Toggles(
+                    (
+                        ("Loop", "loop", settings.loop),
+                        ("Play next", "play next", settings.play_next),
+                    )
+                ),
             ]
         if playback is None:
             shown = str(settings.worlds)
@@ -661,6 +688,8 @@ class Viewer:
             "lower resolution": lambda: self._step_resolution(-1),
             "higher resolution": lambda: self._step_resolution(1),
             "overlay": setting("overlay"),
+            "loop": setting("loop"),
+            "play next": setting("play_next"),
             "frame rate": setting("frame_rate"),
             "cache": setting("cache"),
             "panel": setting("panel"),
@@ -702,6 +731,8 @@ class Viewer:
             self._recompose()
         if settings.frame_rate != previous.frame_rate:
             self._draw_seconds.clear()
+        if self.playback is not None:  # what playing does at a file's end
+            self.playback.loop, self.playback.run_on = settings.loop, settings.play_next
         if settings.cache != previous.cache:
             done = "from now on" if settings.cache else "no longer"
             self._say(f"Composed scenes are {done} kept in {user_folder('cache')}")
@@ -1154,6 +1185,18 @@ class Viewer:
         """The window's close button asks first, as Q and Esc do."""
         glfw.set_window_should_close(window, False)
         self._act("quit")
+
+
+def _give_icon(window) -> None:
+    """The application's icon on the window, its taskbar button, and Alt+Tab.
+
+    Windows on macOS and Wayland have no icon of their own, and GLFW warns
+    there, which is of no use.
+    """
+    images = [(size, size, icon.draw(size).tolist()) for size in ICON_SIZES]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        glfw.set_window_icon(window, len(images), images)
 
 
 def _placement(

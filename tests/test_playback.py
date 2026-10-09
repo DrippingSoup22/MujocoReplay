@@ -86,14 +86,26 @@ def test_without_running_on_each_file_plays_and_steps_on_its_own():
     assert position(playback) == (1, 0, False)
 
 
-def test_showing_another_file_keeps_the_frame_as_far_as_that_file_reaches():
-    playback = Playback([clip(10), clip(4)], 1.0, now=0.0)
+def test_showing_another_file_keeps_the_frame_or_pauses_at_a_shorter_files_end():
+    playback = Playback([clip(10), clip(8), clip(4)], 1.0, now=0.0)
     playback.advance(6.0)
 
     playback.show_file(1)
-    assert position(playback) == (1, 3, True)  # its last frame, still playing
-    playback.show_file(0)
-    assert position(playback) == (0, 3, True)
+    assert position(playback) == (1, 6, True)  # the same frame, still playing
+    playback.show_file(2)
+    assert position(playback) == (2, 3, False)  # its last frame, paused
+
+
+def test_looping_starts_the_file_again_and_running_on_the_first_file():
+    playback = Playback([clip(2, {2: "end"}), clip(2)], 1.0, 0.0, False, loop=True)
+
+    assert playback.advance(2.0) == ["end"]
+    assert position(playback) == (0, 0, True)  # the file again
+    playback.run_on = True
+    playback.advance(5.0)
+    assert position(playback) == (1, 1, True)  # on into the next file
+    playback.advance(7.0)
+    assert position(playback) == (0, 1, True)  # the first again, after the last
 
 
 def test_closing_the_shown_file_shows_the_next_or_after_the_last_the_one_before():

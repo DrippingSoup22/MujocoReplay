@@ -1,12 +1,12 @@
 # Development plan
 
-This plan builds MujocoReplay in eleven stages; the user asked for the sixth
+This plan builds MujocoReplay in twelve stages; the user asked for the sixth
 on 2026-10-07, once the first five were built, for the seventh, a full review,
 once the sixth was, for the eighth, a program to start it from, once the
 seventh was, and for the ninth, any world on its own and new defaults, on
 2026-10-08; the tenth, rings and radii that change, Centipede asked for on
-the user's behalf the same day, and the user asked for the eleventh, tabs, on
-2026-10-09. It is paired with Stage 7 of the
+the user's behalf the same day, and the user asked for the eleventh, tabs,
+and the twelfth, an icon with Loop and Play next, on 2026-10-09. It is paired with Stage 7 of the
 sibling `Centipede` project (`../Centipede/plan.md`), which records the files
 this tool replays. The format is fixed in
 [docs/recording-format.md](docs/recording-format.md) and the design in
@@ -492,6 +492,41 @@ brings the shown tab back into view. The review's random sequences then ran
 clean on the fixed code, but for a 300-pixel window, whose 30-pixel strip
 beside the panel holds no tab at all.
 
+### R12 — An icon, Loop, and Play next
+
+Asked by the user on 2026-10-09, after R11: an icon for the application,
+chosen from what the tool is for; whether several files can be opened at
+once; a loop that starts an episode again when it ends; and, since the user
+watches a run's recordings one after the other to see the centipede
+progress, a setting that goes on with the next tab by itself.
+
+**Builds:** `icon.py`, the icon drawn with NumPy at any size and written as
+a Windows icon file; the window's icon and, on Windows, its own name on the
+taskbar; `Playback.loop`, and the window's `run_on` following Play next;
+the settings `loop` and `play_next`, saved; the panel's Loop and Play next
+and the `L` key; the file picker's title saying that it takes several
+files; `tests/test_icon.py`.
+
+**Done when:** tests show the icon drawn at every size and written as an
+icon file of the same pixels, looping and running on in playback, the
+panel's switches remembered and driving the tabs, and a shorter file pausing
+at its end; the window, driven under a virtual display, carries the icon,
+plays on into the next tab, and comes round from the last.
+
+**Result (2026-10-09):** built; the user's check pending, on Windows in
+particular for the taskbar and the shortcut's icon. 125 tests pass (37 draw
+and skip without OpenGL). The icon shows a centipede, the robot this tool
+was first made for, in front of two grey ghosts of itself, a magenta target,
+and a play button in the panel's blue; the smallest sizes leave out the
+details. Read back from the window on the virtual display (`_NET_WM_ICON`),
+it was there at 16 to 64 pixels. Driven there with three stand-in files,
+Play next took Space at the end of the second tab on into the third, and
+with Loop, the third's end came round to the first, playing throughout. The
+file picker already took several files at once (tkinter's
+`askopenfilenames`), with Ctrl+click or Shift+click, which its title now
+says. A switch that lands past a shorter file's end now pauses there, so
+that neither switch leaves that file at once.
+
 ## Status
 
 | Stage | Status |
@@ -507,3 +542,4 @@ beside the panel holds no tab at all.
 | R9 — Any world on its own, and new defaults | Built (2026-10-08); the user's check pending |
 | R10 — Rings and radii that change | Built (2026-10-08); the user's check pending |
 | R11 — Tabs | Built (2026-10-09); the user's check pending |
+| R12 — An icon, Loop, and Play next | Built (2026-10-09); the user's check pending |

@@ -2,8 +2,9 @@
 
 Pure logic without graphics, driven by the viewer and the video exporter. The
 files are a video's playlist, where playing runs on from the end of one file
-into the next, or the window's tabs, each played on its own; showing another
-file keeps the frame, so that two files can be compared at the same moment.
+into the next, or the window's tabs, each played on its own unless Play next
+runs them on too, and Loop starts them again; showing another file keeps the
+frame, so that two files can be compared at the same moment.
 The speed is wall-clock seconds per recorded frame, slow enough by default to
 see each step. Advancing uses wall time, so a slow renderer skips frames at
 fast speeds instead of slowing down. docs/design.md lists the keys that drive
@@ -25,8 +26,9 @@ class Playback:
     """A playlist of recordings and a position in it.
 
     With ``run_on``, playing and stepping go on from the end of a file into
-    the next, as a video does; without, they stay in the file shown, as the
-    window's tabs do.
+    the next, as a video does; without, they stay in the file shown. With
+    ``loop``, playing starts again at the end: the file shown, or, running
+    on, the first file after the last.
     """
 
     def __init__(
@@ -35,9 +37,11 @@ class Playback:
         seconds_per_frame: float = DEFAULT_SECONDS_PER_FRAME,
         now: float = 0.0,
         run_on: bool = True,
+        loop: bool = False,
     ) -> None:
         self.recordings = recordings
         self.run_on = run_on
+        self.loop = loop
         self.file_index = 0
         self.frame_index = 0
         self.playing = True
@@ -134,10 +138,9 @@ class Playback:
         self._owed = 0.0
 
     def show_file(self, index: int) -> None:
-        """Show another file at the same frame, or at its last when it is
-        shorter, playing or paused as before."""
+        """Show another file at the same frame, playing or paused as before."""
         self.file_index = index
-        self.frame_index = min(self.frame_index, self.recording.frame_count - 1)
+        self._fit_frame()
 
     def remove_file(self, index: int) -> None:
         """Close a file; when it was shown, the one after it takes its place,
@@ -146,7 +149,7 @@ class Playback:
         if index < self.file_index or self.file_index == len(self.recordings):
             self.file_index -= 1
         if self.recordings:
-            self.frame_index = min(self.frame_index, self.recording.frame_count - 1)
+            self._fit_frame()
 
     def status(self) -> str:
         """The playback line of the overlay."""
@@ -177,6 +180,12 @@ class Playback:
                 self.file_index += 1
                 self.frame_index = 0
                 passed += self._events_at(0)
+            elif self.loop and self.playing:  # the end: from the start again
+                passed += self._events_at(self.recording.frame_count)
+                if self.run_on:
+                    self.file_index = 0
+                self.frame_index = 0
+                passed += self._events_at(0)
             else:
                 if self.playing:  # the end, reached while playing
                     passed += self._events_at(self.recording.frame_count)
@@ -196,6 +205,13 @@ class Playback:
             )
             if event_frame == frame
         ]
+
+    def _fit_frame(self) -> None:
+        """Keep the frame in the file shown: a shorter file shows its last
+        frame, paused, so that no mode leaves it at once for another."""
+        last = self.recording.frame_count - 1
+        if self.frame_index > last:
+            self.frame_index, self.playing = last, False
 
     def _at_end(self) -> bool:
         last = not self.run_on or self.file_index == len(self.recordings) - 1

@@ -50,6 +50,7 @@ blob anyway.
 | `video.py` | Offscreen rendering of a playlist to an MP4 | `imageio`, `imageio-ffmpeg`, MuJoCo, NumPy; imported only by the `render` command, so a missing `video` extra fails before any work |
 | `cli.py`, `__main__.py` | The `mujoco-replay` command and `python -m mujoco_replay` | argparse, NumPy; the window and video modules inside the commands |
 | `launcher.py` | The `MujocoReplay` program: the command without a console window, its failures shown in a message box | The standard library; the command inside `main` |
+| `icon.py` | The application's icon, drawn at any size, and written as a Windows icon file by `python -m mujoco_replay.icon` | NumPy |
 
 `recording` and `selection` are the producer-facing half: Centipede imports
 them to write files. They must stay free of MuJoCo and graphics imports, and a
@@ -245,7 +246,14 @@ multiple of real time. Advancing uses wall
 time, so a slow renderer skips frames at fast speeds rather than slowing down.
 In the window the files are the tabs ([below](#tabs)), and each plays on its
 own: playing stops at the end of the file shown, Space there replays it, and
-stepping stays in the file. In a video the files are a playlist
+stepping stays in the file. Two switches of the panel change that end, as
+the user asked on 2026-10-09: Loop starts the file again (`Playback.loop`),
+and Play next goes on with the next tab from its first frame, as a video's
+playlist does (`run_on`), with stepping crossing into the neighbouring tab;
+both together go round all the tabs, the first after the last. The user
+watches a run's recordings one after the other to see the centipede
+progress, which Play next now does by itself. Both are saved with the
+settings. In a video the files are a playlist
 (`Playback(run_on=True)`): when a file ends, playback continues with the next
 and stops at the end of the last, and stepping would cross into the
 neighbouring file. `Playback.advance(now)` returns the events whose frame was
@@ -271,6 +279,7 @@ that frame (`Playback.seek`).
 | 0 | Back to the default speed |
 | Home, End | First or last frame of the file |
 | R | Restart the file |
+| L | Loop on or off: at the end, the file starts again, or with Play next, the first tab after the last |
 | N, P | Show the next or previous tab's file, round from the end, at the same frame |
 | Ctrl+Tab, Ctrl+Shift+Tab | The same, as in an editor |
 | Ctrl+W | Close the tab shown |
@@ -331,10 +340,11 @@ holds it), and the camera, for a file of the same model
 another model's scene is framed as it is at the frame shown. Flicking between
 two tabs therefore shows two files at the same moment of their episodes, as
 an image viewer keeps the zoom while it flicks between two pictures; a tab
-does not keep a place of its own. Each tab plays on its own: playing does not
-run on from a file's end into the next tab, as the window's playlist did
-before, because a switch from a longer file lands on a shorter file's last
-frame, and while playing, the next frame would have switched tabs by itself.
+does not keep a place of its own. Unless Play next is on, each tab plays on
+its own: a file's end does not run on into the next tab, as the window's
+playlist did before stage R11. A switch from a longer file shows a shorter
+file's last frame, paused, since while playing, Play next or Loop would
+leave that file at once.
 
 A tab is named by its file, without its folder and extension, cut in the
 middle when it is wider than 12 lines of text, since the end of a numbered
@@ -568,7 +578,8 @@ here". Recordings come from the command line, from the panel's Open button
 or the `+` after the tabs, which show the system's file picker, or from files
 dropped onto the window (GLFW's drop callback), each into a tab of its own
 ([Tabs](#tabs)). The picker is tkinter's, run in a process of its own,
-which prints the chosen paths in UTF-8 into a temporary file: that keeps
+which takes several files at once (Ctrl+click or Shift+click, as its title
+says) and prints the chosen paths in UTF-8 into a temporary file: that keeps
 tkinter's event loop apart from GLFW's, the window keeps drawing while the
 picker is open, and no pipe can fill and hold the picker open, which a few
 dozen paths would do on Windows; where tkinter is missing, a message says so
@@ -582,8 +593,8 @@ the frame it showed.
 The side panel, on the left, is drawn with MuJoCo's own overlay functions
 (`mjr_rectangle`, `mjr_label`), so the viewer needs nothing beyond MuJoCo and
 NumPy. Its first row opens recordings and, once some are open, closes them
-all; its sections are Playback (the transport buttons and the time per frame;
-the tabs replaced its file stepper), Worlds (how many are shown, the
+all; its sections are Playback (the transport buttons, the time per frame,
+Loop, and Play next; the tabs replaced its file stepper), Worlds (how many are shown, the
 highlighted rank, the ghosts' strength), View (Reset, Top, Follow), Graphics
 (the two presets, the four switches, the resolution), and Options (overlay,
 markers, setup, keys, frame rate, the cache). Switches are buttons lit while
@@ -604,7 +615,8 @@ right after each action, so that a click queued behind Tab does not meet the
 hidden panel.
 
 The settings (the graphics, the number of worlds, the ghosts' strength, the
-cache, the frame-rate readout, the panel, and the overlay) are saved as JSON
+cache, the frame-rate readout, the panel, the overlay, Loop, and Play next)
+are saved as JSON
 in the user's settings folder (`%APPDATA%\MujocoReplay` on Windows,
 `~/.config/mujoco-replay` on Linux) whenever they change, and read at the
 next start; a missing or
@@ -715,6 +727,25 @@ or when started from a terminal, the program is the command itself. A
 failure before the program's own code runs, such as this folder moved away
 from where the editable install points, shows nothing; `mujoco-replay`, run
 in a terminal, prints it.
+
+The window's icon is drawn by `icon.py` when the window opens, at 16 to 64
+pixels, the sizes Windows shows at 100 to 200 % scaling, and given to GLFW;
+windows on macOS and Wayland have none. It shows a centipede, the robot this
+tool was first made for, in front of two grey ghosts of itself, with a
+magenta target and a play button in the panel's blue: the best world among
+the others, replayed, as the user asked for an icon that says what the tool
+is for on 2026-10-09. Its shapes are signed distances, so every size is
+drawn sharp, and the smallest leave out the ghosts and the target. On
+Windows the process names itself `MujocoReplay.Viewer` to the taskbar
+(`SetCurrentProcessExplicitAppUserModelID`) before the window opens, since
+the taskbar would otherwise group the window with every other Python program
+under Python's icon. The `.exe` that pip makes cannot carry an icon, so a
+shortcut takes one from a file: `python -m mujoco_replay.icon` writes
+`MujocoReplay.ico` next to the settings, holding the icon at 16 to 256
+pixels as PNGs, and prints its path for the shortcut's `IconLocation`, as
+the README's shortcut lines do. A pinned shortcut and the window it starts
+may still show as two taskbar buttons, since the shortcut does not carry the
+process's name, as they did before the icon.
 
 The program's current folder is the one its shortcut starts in, by default
 the `Scripts` folder, where MuJoCo appends its warnings to `MUJOCO_LOG.TXT`.

@@ -349,6 +349,27 @@ def test_the_command_ends_with_the_reason_when_none_of_its_files_shows(
     assert "bad: qpos has 10 positions" in capsys.readouterr().err
 
 
+def test_play_next_runs_on_into_the_next_tab_and_loop_back_to_the_first(
+    window, make_recording, saved
+):
+    first, second = make_recording(frames=2, seed=1), make_recording(frames=2, seed=2)
+    viewer = Viewer(window, Settings(cache=False), 0.3)
+    viewer.load([first, second])
+
+    viewer._act("play next")
+    viewer._act("loop")
+    playback = viewer.playback
+    playback.sync(0.0)
+
+    playback.advance(0.6)  # to the first file's end, and on into the second
+    assert playback.recording is second and playback.playing
+    playback.advance(1.2)  # to the second's end, and round to the first
+
+    assert playback.recording is first and playback.playing
+    assert load_settings().play_next and load_settings().loop  # remembered
+    viewer.renderer.close()
+
+
 def test_a_click_on_a_tab_shows_its_file_and_ctrl_tab_and_ctrl_w_act_on_tabs(
     window, make_recording
 ):
