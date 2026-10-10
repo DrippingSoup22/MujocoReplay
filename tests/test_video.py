@@ -43,7 +43,8 @@ def test_the_video_follows_the_best_world_when_it_walks_away(
     x = model.jnt_qposadr[model.body("robot").jntadr[0]]  # its free joint
     recording = make_recording(frames=2, worlds=1, replicated_bodies=("robot",))
     qpos = recording.qpos.copy()
-    qpos[1, 0, x] += 8.0  # off the 3 m floor, far out of the first picture
+    qpos[:, 0, x + 2] = 0.5  # above the floor, which hides what lies under it
+    qpos[1, 0, x] += 8.0  # past the 3 m floor's edge, far out of the first picture
     path = tmp_path / "away.mp4"
 
     moved = replace(recording, qpos=qpos)

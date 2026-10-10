@@ -43,7 +43,7 @@ blob anyway.
 | `selection.py` | `selected_ranks` and `level_of_ranks`, shared with producers; `world_counts` and `choose_worlds(recording, count, world_ids=None, keep=None)`: which of a file's worlds to draw, and in what rank order | NumPy |
 | `scene.py` | `ComposedScene`: the composite model, the joint mapping, colours, markers, `set_frame(frame_index)`, `fits`/`show` to reuse the composite for another file of the same model, or other worlds of the same file, and `same_model` | MuJoCo, NumPy |
 | `playback.py` | `Playback`: the open files (the window's tabs, or a video's playlist), current frame, play/pause, speed presets, stepping and seeking, the events just passed, and the playback line of the overlay; pure logic, no graphics | NumPy, through `recording` |
-| `render.py` | `SceneRenderer`: the MuJoCo render context, camera, graphics settings, drawing of the scene, markers, overlay, timeline, and reading pixels back; works in a window or offscreen | MuJoCo, NumPy |
+| `render.py` | `SceneRenderer`: the MuJoCo render context, camera, graphics settings, drawing of the scene, its floor, markers, overlay, timeline, and reading pixels back; works in a window or offscreen | MuJoCo, NumPy |
 | `settings.py` | `Settings` and `Graphics`: the Quality and Performance presets, the ghosts' strengths, and keeping the settings in the user's settings folder | NumPy, through `selection` |
 | `ui.py` | `Panel`: the side panel's rows, their layout, drawing, and clicks; `TabBar` and `tab_names`: the tabs of the open files; the ASCII text MuJoCo's fonts draw | MuJoCo |
 | `viewer.py` | The application: the window, the empty world, opening files in tabs, the panel's actions, the keys and the mouse, the main loop that draws only on change | GLFW, MuJoCo, NumPy; imported only by the `view` command |
@@ -465,6 +465,69 @@ same model is shown, and reframed for a file of another model; a video
 follows each file's best world as the window does, keeping the camera while
 consecutive files share a composite and framing each new composite.
 
+## The floor, the far plane, and the shadows
+
+A plane collides everywhere, but MuJoCo draws it at its size. Centipede's
+floor is 1 m square, and once its worlds walk on from target to target,
+most of them walk past its edge: in the window they showed against the sky,
+with no floor and no shadow, as if floating (the user's report of
+2026-10-10). Three things are done about it, all in the renderer.
+
+**The floor is drawn everywhere.** MuJoCo draws a plane of size 0 around
+the camera wherever it goes: the plane's grid of quads, made with the
+OpenGL resources (`mjr_makeContext`), reaches 1.05 far planes around the
+camera, and each update moves it under the camera by whole texture repeats,
+so that the pattern stays in place. When a composite is first shown, before
+its context is made, the floor, the lowest of the static scene's planes that
+face up, is given size 0. A plane's size is baked into the context's grid,
+so growing it afterwards, the first attempt, changed only its texture. The
+floor's material gets the repeats that keep its checks' size: a sized plane
+repeats its texture `texrepeat` times over its width (unless `texuniform`
+makes the repeats per metre already), and a plane of size 0 every 2 /
+`texrepeat` metres, so Centipede's 80 repeats over 1 m become 160. A floor
+whose material another shape shares keeps its size, rather than change that
+shape's texture; a plane that faces sideways, or lies above the floor, as a
+pad would, keeps its size too, since spread it would hide the floor or the
+view. MuJoCo hazes the horizon of such a floor, in white unless the model
+says otherwise, which drew a bright band across Centipede's dark sky: a
+floor spread here gets a haze of the sky's own colour at the horizon, the
+mean of the middle rows of the sky's side faces, and fades into it.
+
+MuJoCo moves the floor under the camera of the previous update
+(`mjv_addGeoms` runs before `mjv_updateCamera`), so a camera that jumped to
+a far world, as it does when another world is highlighted, left the floor
+behind for one drawing, which a paused window keeps. The renderer updates
+the camera first (`mjv_updateCamera`), then the scene.
+
+**The far plane follows the camera's distance.** MuJoCo clips everything
+farther than `vis.map.zfar` model extents from the camera, 1.05 m for
+Centipede, and draws the sky at 0.7 of that distance, in front of whatever
+lies beyond. Framing worlds spread over 3 m put the camera 3.5 m away, and
+the picture showed sky alone. For each drawing, the far plane is at 4 camera
+distances, or the model's own if farther, and the model's value is put back
+after. The floor's grid is made again, with the context, once the far plane
+is more than 1.5 times the one it was made for, the point where the floor
+would end before the sky; it is then made for twice the far plane, which
+took 75 ms in Mesa's software renderer, once per doubling of the zoom. The
+viewer takes the context for the panel after drawing the scene, which may
+have made it again: before that, the panel drew with the freed context,
+and its labels went blank until the next change. The offscreen buffer keeps
+depth in floating point with reversed depth (MuJoCo's `mjDEPTH_ZERONEAR`)
+where the card offers them, so a far plane thousands of times the near one
+loses no visible precision.
+
+**Shadows fall where the camera looks.** MuJoCo draws a directional light's
+shadows in a square, `vis.map.shadowclip` model extents each way (4 here),
+around the line from the light's position along its direction. Centipede's
+light hangs above the start, so a centipede 14 cm away cast no shadow and
+seemed to hover even on a floor. A directional light lights everything from
+its direction alone, wherever it is (OpenGL is given the direction only), so
+after each update, each directional light that casts shadows is moved, in
+the list of shapes only, onto the line through the camera's look-at point,
+at its own distance along it: the shadows fall around the followed world,
+and nothing else changes. Spot lights stay where they are, since their
+position is what lights.
+
 ## Rendering in a window and offscreen
 
 `SceneRenderer` wraps one `mujoco.MjrContext`, one `MjvScene`, `MjvCamera`,
@@ -489,7 +552,9 @@ which the renderer reports as a clear error. This is the same structure as
 MuJoCo's `basic` sample and the Python `mujoco.Renderer`; the tool keeps its
 own loop because the passive viewer offers no text overlay.
 
-Each frame, `mjv_updateScene` lists the shapes to draw; while shadows are on,
+Each frame, `mjv_updateCamera` and `mjv_updateScene` list the shapes to
+draw, with the far plane at the camera's distance; while shadows are on,
+the directional lights are aimed at the look-at point, and
 the ghosts' and the floors' shapes are then marked as decoration
 (`mjCAT_DECOR`), which casts no shadow but still receives them: MuJoCo draws
 translucent shapes with full, dark shadows, which would cover the floor in
@@ -532,7 +597,7 @@ smooth maximum there, and 128 a view for pausing.
 
 | Switch | Quality | Performance | How it is done |
 | --- | --- | --- | --- |
-| Shadows | on | off | MuJoCo's `mjRND_SHADOW` flag; a scene whose lights cast no shadow gets one from its first light (Centipede's light casts none), over at least 4 model extents (`vis.map.shadowclip`) |
+| Shadows | on | off | MuJoCo's `mjRND_SHADOW` flag; a scene whose lights cast no shadow gets one from its first light (Centipede's light casts none), over at least 4 model extents (`vis.map.shadowclip`) around where the camera looks |
 | Reflections | on | off | `mjRND_REFLECTION`; a floor (a plane with a material) that does not reflect reflects 0.08 |
 | Anti-aliasing | on | off | 4 samples in MuJoCo's offscreen buffer (`vis.quality.offsamples`) |
 | Fine shapes | on | off | `vis.quality.numslices` and `numstacks`: 16 and 8, or 12 and 6 |

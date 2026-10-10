@@ -1,14 +1,14 @@
 # Development plan
 
-This plan builds MujocoReplay in fourteen stages; the user asked for the sixth
+This plan builds MujocoReplay in fifteen stages; the user asked for the sixth
 on 2026-10-07, once the first five were built, for the seventh, a full review,
 once the sixth was, for the eighth, a program to start it from, once the
 seventh was, and for the ninth, any world on its own and new defaults, on
 2026-10-08; the tenth, rings and radii that change, Centipede asked for on
 the user's behalf the same day, and the user asked for the eleventh, tabs,
 the twelfth, an icon with Loop and Play next, and the thirteenth, an
-executable, on 2026-10-09, and the fourteenth, a camera that follows, on
-2026-10-10. It is paired with Stage 7 of the
+executable, on 2026-10-09, and the fourteenth, a camera that follows, and
+the fifteenth, the floor under every world, on 2026-10-10. It is paired with Stage 7 of the
 sibling `Centipede` project (`../Centipede/plan.md`), which records the files
 this tool replays. The format is fixed in
 [docs/recording-format.md](docs/recording-format.md) and the design in
@@ -639,6 +639,44 @@ change. A world's centre is the centre of mass of all its replicated root
 bodies, which for Centipede's model is the centipede alone; a test model
 whose world is a robot and a door on a hinge keeps the camera between them.
 
+### R15 — The floor under every world
+
+Asked by the user on 2026-10-10: in later runs, centipedes far from one
+another showed only part of the floor, and floated in the air; the floor
+drawn should be the one the centipede in view stands on.
+
+**Builds:** the floor drawn everywhere, as MuJoCo draws a plane of size 0,
+with its checks kept at their size and a haze of the sky's colour where it
+meets the sky; the far clipping plane at 4 camera distances, or the model's
+own if farther, the floor made again when the far plane outgrows it; the
+camera updated before the scene, so that a jump to a far world takes the
+floor along; and the directional lights' shadows cast where the camera
+looks. docs/design.md describes each.
+
+**Done when:** tests show a world 40 m past the floor's edge standing on the
+floor, the floor under a world the camera jumps 100 m to, a world past the
+model's far plane drawn when the camera zooms out, a world 200 m from the
+light casting its shadow, the floor's texture kept at its scale, a floor
+whose material another shape shares keeping its size, and the panel drawn
+with the context made again; each fails without its part of the change. In
+the window, the centipedes of a stand-in walking far stand on the floor,
+with shadows, at the end of the recording.
+
+**Result (2026-10-10):** built; the user's check pending. A faster
+stand-in, posed as R14's, has its 16 worlds reach 3 to 11 targets and end
+0.5 to 1.7 m from where they started; 15 of them leave Centipede's 1 m
+floor. Before the change, at its last frame, followed centipedes showed
+against the sky with no floor and no shadow, and framing all the worlds
+showed sky alone, the camera 3.5 m away and the far plane at 1.05 m. After
+it, drawn offscreen and in the window driven under the virtual display,
+every centipede stands on the checked floor, followed ones with their
+shadows, and framing shows the worlds, the target, and its ring, the floor
+fading into the sky at the horizon. Turning the light's aim off left the
+far centipede without its shadow, hovering. 141 tests pass (46 draw and
+skip without OpenGL); the video test's robot, posed at random half under
+the floor, now stands on it, since the floor that reaches it hides what
+lies under it.
+
 ## Status
 
 | Stage | Status |
@@ -657,3 +695,4 @@ whose world is a robot and a door on a hinge keeps the camera between them.
 | R12 — An icon, Loop, and Play next | Built (2026-10-09); the user's check pending |
 | R13 — The executable | Built (2026-10-09); checked by the user on Windows, then reduced to one program; merged into `main` |
 | R14 — A camera that follows | Built (2026-10-10); the user's check pending |
+| R15 — The floor under every world | Built (2026-10-10); the user's check pending |

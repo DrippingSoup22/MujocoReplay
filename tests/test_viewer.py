@@ -247,6 +247,24 @@ def test_highlighting_another_world_brings_the_camera_to_it(window, make_recordi
     viewer.renderer.close()
 
 
+def test_the_panel_draws_with_the_context_made_again_for_a_longer_floor(
+    window, make_recording, monkeypatch
+):
+    viewer = Viewer(window, Settings(cache=False), 0.3)
+    viewer.load([make_recording(frames=2, worlds=2)])
+    viewer._draw()
+    first = viewer.renderer.context
+    used = []
+    monkeypatch.setattr(viewer.panel, "draw", lambda *args: used.append(args[2]))
+
+    viewer.renderer.camera.distance *= 1000  # far past the floor made at first
+    viewer._draw()
+
+    assert viewer.renderer.context is not first  # its fonts are gone with it
+    assert used == [viewer.renderer.context]
+    viewer.renderer.close()
+
+
 def test_a_world_whose_id_another_world_shares_can_be_highlighted_too(
     window, make_recording
 ):

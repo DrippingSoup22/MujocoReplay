@@ -467,6 +467,7 @@ class Viewer:
             fresh=first,  # a frame to time, even when only the overlay changed
             top=self._top,
         )
+        context = self.renderer.context  # made again if the floor grew
         hover = self._pixels(*self._cursor)
         self.panel.draw(self._layout(), height, context, hover, self.settings.panel)
         if self.asking:  # over everything else, which it dims

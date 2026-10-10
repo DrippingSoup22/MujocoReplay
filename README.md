@@ -109,6 +109,11 @@ optional; [docs/recording-format.md](docs/recording-format.md) lists them all.
 
 ## Status
 
+**Stage R15, the floor under every world (2026-10-10):** the floor is drawn
+everywhere, as the simulation has it, so a centipede that walks past the
+edge of its model's floor no longer floats; zooming out keeps far worlds in
+view, and shadows fall where the camera looks.
+
 **Stage R14, a camera that follows (2026-10-10):** the camera follows the
 highlighted world from the start, since Centipede's worlds now walk on from
 target to target, far from where they start; **F** switches it off, and the

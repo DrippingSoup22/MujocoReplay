@@ -48,6 +48,17 @@ FLOOR_REFLECTANCE = 0.08
 SHADOW_CLIP = 4.0
 # Room in the scene for the shapes MuJoCo adds itself, such as light glyphs.
 SPARE_SHAPES = 200
+# The far clipping plane is at least this many camera distances away, and
+# never nearer than the model's own (``vis.map.zfar``), so that zooming out
+# keeps the worlds and the floor in view; MuJoCo draws the sky at 0.7 of it.
+FAR_DISTANCES = 4.0
+# MuJoCo makes a floor that is drawn everywhere with the OpenGL resources, to
+# reach 1.05 far planes around the camera. Once the far plane is more than
+# this many times the one the floor was made for, the floor would end before
+# the sky, so the resources are made again, for twice the far plane.
+FLOOR_SLACK = 1.5
+# A plane faces up when the height of its normal is above this.
+LEVEL = 0.99
 # The camera stays this many degrees above the horizon, so above the floor.
 LOWEST_ELEVATION = -2.0
 # How far from the middle of the worlds, in model extents, framing still looks
@@ -109,6 +120,7 @@ class SceneRenderer:
         self._buffer = offscreen_size or (global_.offwidth, global_.offheight)
         self._font_scale = font_scale
         self._context: mujoco.MjrContext | None = None
+        self._floor_far = 0.0  # the far plane the floors were made for, in extents
         self._shapes: mujoco.MjvScene | None = None
         self.show(scene)
         self.frame_all()
@@ -118,6 +130,8 @@ class SceneRenderer:
         new_model = self.scene is None or scene.model is not self.scene.model
         if new_model:
             _add_shadows_and_reflections(scene.model)
+            _spread_floors(scene.model, scene.data)
+            self._floor_far = 0.0
             self._make_context(scene.model)
         markers = len(scene.recording.marker_names or ())
         rings = (scene.recording.marker_shapes or ()).count("ring")
@@ -197,20 +211,14 @@ class SceneRenderer:
         self.drew_scene = not windowed or fresh or picture != self._picture
         self._picture = picture
         if self.drew_scene:
-            mujoco.mjv_updateScene(
-                scene.model,
-                scene.data,
-                self.option,
-                None,
-                camera,
-                mujoco.mjtCatBit.mjCAT_ALL,
-                shapes,
-            )
+            self._update_shapes()
+            context = self._context  # made again if the floors were too short
             flags = shapes.flags
             flags[mujoco.mjtRndFlag.mjRND_SHADOW] = self.graphics.shadows
             flags[mujoco.mjtRndFlag.mjRND_REFLECTION] = self.graphics.reflections
             if self.graphics.shadows:
                 self._keep_shadows_clean()
+                self._aim_shadows()
             if self.markers_visible:
                 self._add_markers()
         below = max(1, height - top)
@@ -278,7 +286,12 @@ class SceneRenderer:
             self._hint(area, hint)
 
     def _make_context(self, model: mujoco.MjModel) -> None:
-        """Make the OpenGL resources for ``model``, as fine as the graphics ask."""
+        """Make the OpenGL resources for ``model``, as fine as the graphics ask.
+
+        A floor drawn everywhere is made here, to reach around the camera as
+        far as the model's own far plane, or twice the far plane that last
+        outgrew the floor, whichever is farther.
+        """
         if self._context is not None:
             self._context.free()
         quality = model.vis.quality
@@ -287,6 +300,9 @@ class SceneRenderer:
         quality.numslices, quality.numstacks = detail
         model.vis.global_.offwidth, model.vis.global_.offheight = self._buffer
         self._generation += 1
+        own = model.vis.map.zfar
+        self._floor_far = max(own, self._floor_far)
+        model.vis.map.zfar = self._floor_far
         try:
             self._context = mujoco.MjrContext(model, self._font_scale)
         except mujoco.FatalError as error:
@@ -294,7 +310,41 @@ class SceneRenderer:
                 f"OpenGL is not available ({error}). On Linux without a "
                 "display, set MUJOCO_GL=egl or MUJOCO_GL=osmesa."
             ) from None
+        finally:
+            model.vis.map.zfar = own
         mujoco.mjr_setBuffer(mujoco.mjtFramebuffer.mjFB_OFFSCREEN, self._context)
+
+    def _update_shapes(self) -> None:
+        """Make MuJoCo's list of shapes for the scene as posed, from the camera.
+
+        The far clipping plane is FAR_DISTANCES camera distances away, or the
+        model's own if farther, for this list alone: MuJoCo's own would cut
+        off the worlds and the floor when the camera is zoomed out. The floor
+        is made again when the far plane outgrows it.
+        """
+        model = self.scene.model
+        own = model.vis.map.zfar
+        far = max(own, FAR_DISTANCES * self.camera.distance / model.stat.extent)
+        if far > FLOOR_SLACK * self._floor_far:
+            self._floor_far = 2 * far
+            self._make_context(model)
+        model.vis.map.zfar = far
+        try:
+            # MuJoCo moves a floor drawn everywhere under the camera of the
+            # previous update; a camera that jumped, to another world, would
+            # leave the floor behind in this drawing.
+            mujoco.mjv_updateCamera(model, self.scene.data, self.camera, self._shapes)
+            mujoco.mjv_updateScene(
+                model,
+                self.scene.data,
+                self.option,
+                None,
+                self.camera,
+                mujoco.mjtCatBit.mjCAT_ALL,
+                self._shapes,
+            )
+        finally:
+            model.vis.map.zfar = own
 
     def _fit_buffer(self, width: int, height: int) -> None:
         """Grow the offscreen buffer to the window, which may have grown."""
@@ -442,6 +492,27 @@ class SceneRenderer:
             shape = shapes.geoms[index]
             if shape.objtype == geom and (shape.type == plane or ghosts[shape.objid]):
                 shape.category = decoration
+
+    def _aim_shadows(self) -> None:
+        """Cast the directional lights' shadows where the camera looks.
+
+        MuJoCo draws such a light's shadows in a square, SHADOW_CLIP model
+        extents each way, around the line from the light's position along its
+        direction, so that worlds that walk away from it lose their shadows.
+        A directional light lights everything the same from anywhere: moved
+        in the list of shapes onto the line through the look-at point, at its
+        distance along it, it lights as before and casts its shadows there.
+        """
+        lookat = self.camera.lookat
+        directional = mujoco.mjtLightType.mjLIGHT_DIRECTIONAL
+        for index in range(self._shapes.nlight):
+            light = self._shapes.lights[index]
+            if light.type != directional or not light.castshadow:
+                continue
+            direction = light.dir / max(np.linalg.norm(light.dir), 1e-9)
+            depth = (lookat - light.pos) @ direction
+            if depth > 0:  # the light shines toward the look-at point
+                light.pos[:] = lookat - depth * direction
 
     def _add_markers(self) -> None:
         """The markers, in the scene's spare slots, at the current frame's radii.
@@ -790,3 +861,72 @@ def _add_shadows_and_reflections(model: mujoco.MjModel) -> None:
         material = model.geom_matid[geom]
         if material >= 0 and model.mat_reflectance[material] == 0:
             model.mat_reflectance[material] = FLOOR_REFLECTANCE
+
+
+def _spread_floors(model: mujoco.MjModel, data: mujoco.MjData) -> None:
+    """Draw the floor everywhere, as the simulation has it.
+
+    A plane collides everywhere, but MuJoCo draws it at its size, so that a
+    world that walks past the floor's edge seems to float. A plane of size 0
+    is drawn everywhere: MuJoCo moves it under the camera by whole texture
+    repeats, so that its pattern stays in place. The floor, the lowest of the
+    static scene's planes that face up, is given size 0, and its texture the
+    repeats that keep its scale, where a plane of size 0 repeats it every 2 /
+    repeats. A floor keeps its size if those repeats would change other
+    shapes, which share its material. ``data`` must be posed.
+
+    MuJoCo hazes the horizon of a floor drawn everywhere, in white unless the
+    model says otherwise, which would draw a bright band across a dark sky:
+    the haze of a floor spread here takes the sky's colour at the horizon.
+    """
+    static = model.body_weldid[model.geom_bodyid] == 0
+    up = data.geom_xmat[:, 8] > LEVEL  # the height of the plane's normal
+    planes = np.flatnonzero(
+        (model.geom_type == mujoco.mjtGeom.mjGEOM_PLANE) & static & up
+    )
+    if not len(planes):
+        return
+    heights = data.geom_xpos[planes, 2]
+    lowest = np.isclose(heights, heights.min(), rtol=0, atol=1e-6 * model.stat.extent)
+    spread = False
+    for geom in planes[lowest]:
+        size = model.geom_size[geom, :2].copy()
+        if not (size > 0).all():
+            continue  # drawn everywhere already
+        material = model.geom_matid[geom]
+        if material >= 0:
+            repeats = model.mat_texrepeat[material]
+            kept = np.where(repeats > 0, repeats, 1.0)  # MuJoCo takes 0 as 1
+            if not model.mat_texuniform[material]:  # repeats over the plane
+                kept = kept / size
+            if not np.allclose(kept, repeats):
+                if np.count_nonzero(model.geom_matid == material) > 1:
+                    continue
+                model.mat_texrepeat[material] = kept
+        model.geom_size[geom, :2] = 0
+        spread = True
+    horizon = _sky_at_the_horizon(model) if spread else None
+    if horizon is not None:
+        model.vis.rgba.haze[:3] = horizon
+
+
+def _sky_at_the_horizon(model: mujoco.MjModel) -> np.ndarray | None:
+    """The mean colour of the sky MuJoCo draws, around the horizon, if any.
+
+    A sky is a cube map, its six faces one above the other; MuJoCo turns it
+    so that the cube's third and fourth faces are up and down, and the middle
+    rows of the others are the horizon.
+    """
+    skies = np.flatnonzero(model.tex_type == mujoco.mjtTexture.mjTEXTURE_SKYBOX)
+    if not len(skies):
+        return None
+    sky = skies[0]  # the one MuJoCo draws
+    width, height = model.tex_width[sky], model.tex_height[sky]
+    channels = model.tex_nchannel[sky]
+    if height != 6 * width or channels < 3:
+        return None
+    start = model.tex_adr[sky]
+    faces = model.tex_data[start : start + height * width * channels]
+    faces = faces.reshape(6, width, width, channels)
+    middle = faces[[0, 1, 4, 5], width // 2 - 1 : width // 2 + 1, :, :3]
+    return middle.reshape(-1, 3).mean(axis=0) / 255
