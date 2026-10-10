@@ -694,5 +694,5 @@ lies under it.
 | R11 — Tabs | Built (2026-10-09); the user's check pending |
 | R12 — An icon, Loop, and Play next | Built (2026-10-09); the user's check pending |
 | R13 — The executable | Built (2026-10-09); checked by the user on Windows, then reduced to one program; merged into `main` |
-| R14 — A camera that follows | Built (2026-10-10); the user's check pending |
-| R15 — The floor under every world | Built (2026-10-10); the user's check pending |
+| R14 — A camera that follows | Built (2026-10-10); merged into `main`; the user's check pending |
+| R15 — The floor under every world | Built (2026-10-10); merged into `main`; the user's check pending |
