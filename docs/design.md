@@ -289,7 +289,7 @@ that frame (`Playback.seek`).
 | V | Reset the view: frame every drawn world, and the highlighted world's rings, from a raised angle |
 | T | Look straight down, from above |
 | C | Centre the camera on the highlighted world |
-| F | Follow the highlighted world on or off |
+| F | Follow the highlighted world, on at first, or stop; remembered |
 | H | Show or hide the overlay (remembered) |
 | I | Show or hide the setup information |
 | O | Open recordings with the system's file picker |
@@ -439,20 +439,31 @@ not finite: one such world could otherwise take the camera with it and blank
 the picture (the third review found that). A
 world's centre is the centre of mass of all its replicated root bodies,
 weighted by their masses, from the `subtree_com` that `mj_comPos` computes
-(`mj_kinematics` leaves it at zero, so `set_frame` runs both). `C` recentres
-on the highlighted world's centre; `F` keeps the camera's look-at point on it
-every frame, following the highlight as it moves, and leaves the camera where
-it stands when switched off. This is what MuJoCo's tracking camera
-(`mjCAMERA_TRACKING`) does for one body, but a world may have several root
-bodies. Highlighting another world, with B, Shift+B, the panel's stepper,
-or a double-click, brings the camera to it as `C` does, keeping its distance
-and its angle, and keeps it following if it followed: the world just picked
-may lie far from where the camera looked, even outside the picture, and the
-user found on 2026-10-09 that the camera did not go with the pick. The
-camera is independent of playback. In the window it is kept when
-another file of the same model is shown, and reframed for a file of another
-model; a video keeps it while consecutive files share a composite, and frames
-each new composite.
+(`mj_kinematics` leaves it at zero, so `set_frame` runs both).
+
+The camera follows the highlighted world: its look-at point moves to the
+world's centre at every frame drawn, keeping the distance and the angle,
+which the user still sets by rotating and zooming. This is what MuJoCo's
+tracking camera (`mjCAMERA_TRACKING`) does for one body, but a world may
+have several root bodies, and its centre is theirs together. Following was
+a switch that started off, until Centipede's worlds began to walk on from
+each target they reach to a new one, many body lengths from where they
+started: the camera, framed on the start, lost the centipede (the user's
+report of 2026-10-10). So it starts on, and `F`, or the panel's Follow,
+switches it off or on again and is remembered between runs, as the setting
+`follow`. Panning switches it off for the moment only, since following
+would undo the pan; opening a file, or `V`, frames the worlds again and
+follows as the setting says. `C` recentres on the highlighted world without
+changing whether the camera follows, and so does highlighting another
+world, with B, Shift+B, the panel's stepper, or a double-click: the world
+just picked may lie far from where the camera looked, even outside the
+picture (the user's report of 2026-10-09). A model that stays in place,
+such as an arm on a fixed base, moves its centre of mass as it moves, and
+the camera with it; Follow off keeps the camera still. The camera is
+independent of playback. In the window it is kept when another file of the
+same model is shown, and reframed for a file of another model; a video
+follows each file's best world as the window does, keeping the camera while
+consecutive files share a composite and framing each new composite.
 
 ## Rendering in a window and offscreen
 
@@ -624,8 +635,8 @@ right after each action, so that a click queued behind Tab does not meet the
 hidden panel.
 
 The settings (the graphics, the number of worlds, the ghosts' strength, the
-cache, the frame-rate readout, the panel, the overlay, Loop, and Play next)
-are saved as JSON
+cache, the frame-rate readout, the panel, the overlay, Loop, Play next, and
+Follow) are saved as JSON
 in the user's settings folder (`%APPDATA%\MujocoReplay` on Windows,
 `~/.config/mujoco-replay` on Linux) whenever they change, and read at the
 next start; a missing or

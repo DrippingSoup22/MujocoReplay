@@ -64,6 +64,7 @@ class Settings:
     overlay: bool = True
     loop: bool = False  # start again at the end
     play_next: bool = False  # go on with the next tab at the end
+    follow: bool = True  # the camera follows the highlighted world
 
     @property
     def mode(self) -> str:

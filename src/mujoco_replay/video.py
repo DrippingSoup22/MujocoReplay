@@ -63,6 +63,7 @@ def export(
         cleanup.callback(context.free)
         scene = ComposedScene(recordings[0], worlds[0], cache)
         renderer = SceneRenderer(scene, (width, height), _font_scale(height), graphics)
+        renderer.set_follow(True)  # the best world may walk out of the picture
         cleanup.callback(renderer.close)
         writer = cleanup.enter_context(
             imageio.get_writer(

@@ -79,6 +79,7 @@ moment:
 | **N**, **P** | Next, previous tab |
 | **B**, double-click | Highlight another world, and look at it |
 | Drag, right-drag, wheel | Rotate, pan, zoom |
+| **F** | Follow the highlighted world (on at first), or stop |
 | **V** | Reset the view |
 | **L** | Loop the file |
 | **Tab** | Hide the panel |
@@ -107,6 +108,11 @@ Scores, targets and other markers, events, and the run's settings are
 optional; [docs/recording-format.md](docs/recording-format.md) lists them all.
 
 ## Status
+
+**Stage R14, a camera that follows (2026-10-10):** the camera follows the
+highlighted world from the start, since Centipede's worlds now walk on from
+target to target, far from where they start; **F** switches it off, and the
+choice is remembered. Videos follow each file's best world too.
 
 **Stage R13, the Windows executable (2026-10-09):** one program that needs
 no Python, which the user has run on Windows; GitHub builds it and checks it

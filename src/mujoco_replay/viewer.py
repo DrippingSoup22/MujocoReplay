@@ -663,10 +663,10 @@ class Viewer:
             "fainter": lambda: self._step_ghosts(-1),
             "stronger": lambda: self._step_ghosts(1),
             "markers": self._toggle_markers,
-            "reset view": self.renderer.frame_all,
+            "reset view": self._reset_view,
             "top view": self.renderer.look_from_above,
-            "follow": lambda: self.renderer.set_follow(not self.renderer.follow),
-            "centre": self.renderer.centre_on_highlight,
+            "follow": self._toggle_follow,
+            "centre": self._centre,
             "quality": lambda: self._change(self.settings.with_mode("quality")),
             "performance": lambda: self._change(self.settings.with_mode("performance")),
             "shadows": graphics("shadows"),
@@ -876,6 +876,7 @@ class Viewer:
         self.renderer.show(scene)
         if reframe:
             self.renderer.frame_all()
+            self.renderer.set_follow(self.settings.follow)
         drawn = scene.recording.world_ids[scene.worlds]
         same = np.flatnonzero(drawn == self._picked) if self._picked is not None else []
         scene.set_highlight(int(same[0]) if len(same) else 0)
@@ -932,7 +933,32 @@ class Viewer:
             scene.show(scene.recording, worlds, scene.frame_index)
             self.renderer.show(scene)  # another picture, the same model
         scene.set_highlight(int(np.flatnonzero(worlds == world)[0]))
-        self.renderer.look_at_highlight()
+        self.renderer.centre_on_highlight()
+
+    def _reset_view(self) -> None:
+        """Frame every drawn world again, following the highlight if the
+        settings say so, as when a file opens; the empty world's own view
+        without a file."""
+        if self.playback is None:
+            _look_at_empty_world(self.renderer)
+            return
+        self.renderer.frame_all()
+        self.renderer.set_follow(self.settings.follow)
+
+    def _toggle_follow(self) -> None:
+        """Follow the highlighted world, or stop, and remember that for the
+        next runs. Panning stops following for the moment only; the next file
+        that opens, or the view reset, follows again."""
+        if self.playback is None:  # nothing to follow
+            return
+        follow = not self.renderer.follow
+        self.renderer.set_follow(follow)
+        if follow != self.settings.follow:
+            self._change(replace(self.settings, follow=follow))
+
+    def _centre(self) -> None:
+        if self.playback is not None:
+            self.renderer.centre_on_highlight()
 
     def _toggle_markers(self) -> None:
         self.renderer.markers_visible = not self.renderer.markers_visible

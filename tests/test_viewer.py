@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import glfw
+import mujoco
 import numpy as np
 import pytest
 
@@ -200,6 +201,31 @@ def test_the_highlight_reaches_every_world_each_in_place_of_its_bands_best(
     viewer.renderer.close()
 
 
+def test_the_camera_follows_the_highlight_unless_turned_off_which_is_remembered(
+    window, make_recording, saved
+):
+    viewer = Viewer(window, Settings(cache=False), 0.3)
+    viewer._act("follow")  # nothing to follow in the empty world
+    assert not viewer.renderer.follow and load_settings().follow
+    viewer.load([make_recording(frames=4, worlds=2)])
+    renderer, scene = viewer.renderer, viewer.scene
+    viewer.playback.seek(3)
+    viewer._draw()
+
+    assert renderer.follow  # by default, from the first file on
+    assert np.allclose(renderer.camera.lookat, scene.world_centre(scene.highlight))
+    viewer._act("follow")  # F, or the panel's Follow
+    viewer._act("reset view")
+    assert not renderer.follow and not load_settings().follow
+    viewer._act("follow")
+    assert renderer.follow and load_settings().follow
+    renderer.move_camera(mujoco.mjtMouse.mjMOUSE_MOVE_V, 0.1, 0.1)  # a pan
+    assert not renderer.follow and load_settings().follow  # for the moment only
+    viewer._act("reset view")
+    assert renderer.follow
+    renderer.close()
+
+
 def test_highlighting_another_world_brings_the_camera_to_it(window, make_recording):
     recording = make_recording(worlds=3, score=[3, 2, 1])
     viewer = Viewer(window, Settings(worlds=3, cache=False), 0.3)
@@ -257,10 +283,10 @@ def test_opening_more_files_adds_tabs_and_shows_the_first_at_the_same_frame(
     early, late = tmp_path / "early.npz", tmp_path / "late.npz"
     write_recording(early, make_recording(frames=6, seed=1))
     write_recording(late, make_recording(frames=6, seed=2))
-    viewer = Viewer(window, Settings(cache=False), 0.3)
+    viewer = Viewer(window, Settings(cache=False, follow=False), 0.3)
     viewer.open_files([str(early)])
     viewer.playback.seek(4)  # paused at the fifth frame
-    viewer.renderer.camera.lookat[:] = (1.0, 2.0, 3.0)
+    viewer.renderer.camera.lookat[:] = (1.0, 2.0, 3.0)  # where the user put it
 
     viewer.open_files([str(late)])
     viewer._draw()

@@ -30,6 +30,21 @@ def test_a_frame_shows_the_scene_and_changes_when_the_ghosts_hide(
     assert (with_ghosts != without_ghosts).any()
 
 
+def test_framing_and_centring_leave_following_as_it_was(gl_context, make_recording):
+    scene = ComposedScene(make_recording(frames=1, worlds=2), np.arange(2))
+    renderer = SceneRenderer(scene, offscreen_size=(64, 48))
+    states = []
+    for follow in (True, False):
+        renderer.set_follow(follow)
+        renderer.frame_all()
+        renderer.centre_on_highlight()
+        renderer.look_from_above()
+        states.append(renderer.follow)
+    renderer.close()
+
+    assert states == [True, False]
+
+
 def test_sites_are_not_drawn(gl_context, make_recording):
     scene = ComposedScene(make_recording(frames=1, worlds=2), np.arange(2))
     renderer = SceneRenderer(scene, offscreen_size=(64, 48))

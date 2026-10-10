@@ -323,7 +323,9 @@ class SceneRenderer:
 
         The highlighted world's rings are taken in whole. A world whose
         positions diverged, to infinity or far beyond the others, is left
-        out, so that it cannot take the camera with it.
+        out, so that it cannot take the camera with it. Following goes on, if
+        on: from this distance and angle, the camera then looks at the
+        highlighted world.
         """
         scene = self.scene
         extent = scene.model.stat.extent
@@ -350,7 +352,6 @@ class SceneRenderer:
                 if near.any():
                     break
             points = points[near]
-        self.follow = False
         self.camera.elevation = -25.0
         self.camera.azimuth = 120.0
         if not len(points):
@@ -391,14 +392,8 @@ class SceneRenderer:
         self.camera.elevation = -90.0
 
     def centre_on_highlight(self) -> None:
-        """Look at the highlighted world, keeping the distance and angle, and
-        stop following it."""
-        self.follow = False
-        self.look_at_highlight()
-
-    def look_at_highlight(self) -> None:
-        """Move the look-at point to the highlighted world, keeping the
-        distance, the angle, and whether the camera follows it."""
+        """Look at the highlighted world, keeping the distance, the angle, and
+        whether the camera follows it."""
         self._look_at(self.scene.world_centre(self.scene.highlight))
 
     def set_follow(self, follow: bool) -> None:

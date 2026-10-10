@@ -1,5 +1,8 @@
 """Tests for the video: short recordings written to MP4 files."""
 
+from dataclasses import replace
+
+import mujoco
 import numpy as np
 import pytest
 
@@ -31,6 +34,25 @@ def test_each_recorded_frame_lasts_its_seconds_in_the_video(
     frames = frames_in(path)
     assert written == len(frames) == 2 * 3  # two recorded frames, 0.3 s at 10 fps
     assert frames[0].shape == (64, 96, 3)
+
+
+def test_the_video_follows_the_best_world_when_it_walks_away(
+    gl_context, make_recording, small_model, tmp_path
+):
+    model = mujoco.MjModel.from_xml_string(small_model)
+    x = model.jnt_qposadr[model.body("robot").jntadr[0]]  # its free joint
+    recording = make_recording(frames=2, worlds=1, replicated_bodies=("robot",))
+    qpos = recording.qpos.copy()
+    qpos[1, 0, x] += 8.0  # off the 3 m floor, far out of the first picture
+    path = tmp_path / "away.mp4"
+
+    moved = replace(recording, qpos=qpos)
+    export([moved], [np.arange(1)], path, 0.1, 10, (160, 120), hud=False)
+
+    last = frames_in(path)[-1].astype(int)
+    red, green, blue = last[..., 0], last[..., 1], last[..., 2]
+    torso = (blue > 120) & (blue > red + 50) & (blue > green + 20)  # its blue paint
+    assert torso.sum() > 5  # none when the camera stays where it framed the start
 
 
 def test_an_event_at_the_end_holds_the_last_frame_while_it_flashes(

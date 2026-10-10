@@ -1,13 +1,14 @@
 # Development plan
 
-This plan builds MujocoReplay in thirteen stages; the user asked for the sixth
+This plan builds MujocoReplay in fourteen stages; the user asked for the sixth
 on 2026-10-07, once the first five were built, for the seventh, a full review,
 once the sixth was, for the eighth, a program to start it from, once the
 seventh was, and for the ninth, any world on its own and new defaults, on
 2026-10-08; the tenth, rings and radii that change, Centipede asked for on
 the user's behalf the same day, and the user asked for the eleventh, tabs,
 the twelfth, an icon with Loop and Play next, and the thirteenth, an
-executable, on 2026-10-09. It is paired with Stage 7 of the
+executable, on 2026-10-09, and the fourteenth, a camera that follows, on
+2026-10-10. It is paired with Stage 7 of the
 sibling `Centipede` project (`../Centipede/plan.md`), which records the files
 this tool replays. The format is fixed in
 [docs/recording-format.md](docs/recording-format.md) and the design in
@@ -604,6 +605,40 @@ the change; in the window, driven under the virtual display with the early
 stand-in zoomed in at its last frame, three presses of B centred the camera
 on the worlds of ranks 2, 3, and 4 in turn.
 
+### R14 — A camera that follows
+
+Asked by the user on 2026-10-10: the camera stayed where the centipede
+started, while Centipede's training branch now lets a world walk on after
+reaching its target, to a new target placed from where its head is
+(`[environment.target] after_arrival = "new_target"`), so that a centipede
+travels many body lengths in one recording.
+
+**Builds:** following on from the start, as the setting `follow`,
+remembered; F and the panel's Follow switch it and save the choice, while
+panning stops it for the moment only; framing, at a file's opening or with
+V, and centring with C or a new highlight, leave it as it is; a video
+follows each file's best world.
+
+**Done when:** tests show following on by default and saved when switched,
+panning not saved, framing and centring keeping it, and a video keeping in
+view a world that leaves the first picture; in the window, a recording of
+centipedes walking on from target to target keeps the best one in the
+middle of the picture to its end.
+
+**Result (2026-10-10):** built; the user's check pending. Centipede's
+recordings keep no run in the repository, so a stand-in was posed from
+Centipede's model as the training branch records such a run: 16 worlds of
+600 frames walking from target to target, each world's target and range
+ring moving on at every arrival, with `episode_start` marking the arrivals;
+the worlds reached 2 to 8 targets and ended 12 to 42 cm from where they
+started, the centipede being 3 cm long. Driven under the virtual display,
+the window lost the best world before the change and kept it in the middle
+of the picture, at the start, halfway, and at the end, after it. 134 tests
+pass (41 draw and skip without OpenGL); the new ones fail without the
+change. A world's centre is the centre of mass of all its replicated root
+bodies, which for Centipede's model is the centipede alone; a test model
+whose world is a robot and a door on a hinge keeps the camera between them.
+
 ## Status
 
 | Stage | Status |
@@ -621,3 +656,4 @@ on the worlds of ranks 2, 3, and 4 in turn.
 | R11 — Tabs | Built (2026-10-09); the user's check pending |
 | R12 — An icon, Loop, and Play next | Built (2026-10-09); the user's check pending |
 | R13 — The executable | Built (2026-10-09); checked by the user on Windows, then reduced to one program; merged into `main` |
+| R14 — A camera that follows | Built (2026-10-10); the user's check pending |
