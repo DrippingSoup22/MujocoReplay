@@ -10,6 +10,7 @@ pytest.importorskip("imageio_ffmpeg", reason="the video extra is not installed")
 
 import imageio.v2 as imageio  # noqa: E402
 
+from mujoco_replay import cli  # noqa: E402
 from mujoco_replay.video import FLASH_SECONDS, export  # noqa: E402
 
 
@@ -77,3 +78,15 @@ def test_an_event_at_the_end_holds_the_last_frame_while_it_flashes(
     assert written == len(frames) == 2 * 3 + round(FLASH_SECONDS * 10)
     change = np.abs(frames[-1].astype(int) - frames[5].astype(int)).mean()
     assert change > 1  # the flash is drawn over the held frame
+
+
+def test_the_command_writes_a_video_of_a_model_file(
+    gl_context, saved, small_model, tmp_path
+):
+    model, out = tmp_path / "small.xml", tmp_path / "small.mp4"
+    model.write_text(small_model)
+
+    status = cli.main(["render", str(model), "--out", str(out), "--fps", "10"])
+
+    assert status == 0
+    assert frames_in(out)[0].shape[2] == 3  # one still frame, as long as it lasts

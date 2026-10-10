@@ -41,7 +41,7 @@ blob anyway.
 | --- | --- | --- |
 | `recording.py` | The file format: `Recording`, `write_recording`, `read_recording` | NumPy |
 | `selection.py` | `selected_ranks` and `level_of_ranks`, shared with producers; `world_counts` and `choose_worlds(recording, count, world_ids=None, keep=None)`: which of a file's worlds to draw, and in what rank order | NumPy |
-| `scene.py` | `ComposedScene`: the composite model, the joint mapping, colours, markers, `set_frame(frame_index)`, `fits`/`show` to reuse the composite for another file of the same model, or other worlds of the same file, and `same_model` | MuJoCo, NumPy |
+| `scene.py` | `ComposedScene`: the composite model, the joint mapping, colours, markers, `set_frame(frame_index)`, `fits`/`show` to reuse the composite for another file of the same model, or other worlds of the same file, and `same_model`; `read_file` and `read_model`: a MuJoCo model file read as a recording of its own pose | MuJoCo, NumPy |
 | `playback.py` | `Playback`: the open files (the window's tabs, or a video's playlist), current frame, play/pause, speed presets, stepping and seeking, the events just passed, and the playback line of the overlay; pure logic, no graphics | NumPy, through `recording` |
 | `render.py` | `SceneRenderer`: the MuJoCo render context, camera, graphics settings, drawing of the scene, its floor, markers, overlay, timeline, and reading pixels back; works in a window or offscreen | MuJoCo, NumPy |
 | `settings.py` | `Settings` and `Graphics`: the Quality and Performance presets, the ghosts' strengths, and keeping the settings in the user's settings folder | NumPy, through `selection` |
@@ -194,6 +194,42 @@ hide it. A marker's radius may change per frame (`marker_radius` of shape
 `(T, K, M)`), as Centipede's range does at each new episode; every marker,
 ring or sphere, is drawn at the current frame's radius.
 
+## Model files
+
+A MuJoCo model file (`.xml`) opens as a recording does, to see a model as it
+is written, before any training (the user's request of 2026-10-10).
+`read_file` reads a file by its suffix, `.xml` as a model and anything else as
+a recording, for the file picker, a drop, the command line, and the program
+alike. `read_model` makes the model a recording of one world with one frame:
+the pose the model is written in, `qpos0`, which MuJoCo's own viewer shows
+first, lasting one of the model's time steps. Its keyframes are left out:
+playback starts by itself, and would turn the model through their poses on
+its own. The rest is any recording's: the composite, the floor, the camera, a
+tab named after the file (two `scene.xml` files are told apart by their
+folders), and a video with `render`. The model's sizes (bodies, joints,
+actuators, keyframes, time step) make the recording's setup, which `I` shows.
+
+MuJoCo reads the file with `MjSpec.from_file`, which takes in the files it
+includes. The files the model's assets name are read into the recording's
+assets, so that composing never reads the disk: meshes, height fields, and
+skins from the compiler's `meshdir`, textures and their cube faces from its
+`texturedir`, both from the model's folder. MuJoCo finds an asset by name, and
+also by shorter names than its folder and file together, which in a test gave
+one foot the mesh of another file of the same name in another folder. So each
+file is renamed in the model to its path from the model's folder
+(`meshes/left/foot.obj`), the folders are cleared, and the model, written out
+with `to_xml`, is compiled from those assets, as composing will compile it, to
+check it and read its pose; compiling the edited model directly found the
+wrong file in the same test. A file outside the model's folder is named by
+its order and its own name, after which MuJoCo names an unnamed asset. The
+composite cache keys on the assets' contents, so an edited mesh composes
+afresh. Unitree's Go2 and Franka's Panda, from MuJoCo Menagerie, with 16 and
+67 mesh and texture files (28 and 34 MB), read in 2.2 and 1.4 s here, mostly
+MuJoCo compiling their meshes, and composed in 1.5 s more the first time.
+URDF files, which MuJoCo reads too, are left out: MuJoCo drops their visual
+shapes unless the file says otherwise, and their meshes often sit behind
+`package://` paths.
+
 ## Choosing the worlds
 
 The file may hold more worlds than are drawn. The viewer draws `N` of them,
@@ -292,7 +328,7 @@ that frame (`Playback.seek`).
 | F | Follow the highlighted world, on at first, or stop; remembered |
 | H | Show or hide the overlay (remembered) |
 | I | Show or hide the setup information |
-| O | Open recordings with the system's file picker |
+| O | Open recordings or model files with the system's file picker |
 | F1, ? | Show or hide this list of keys, at the top right |
 | Tab | Show or hide the side panel (remembered) |
 | Esc, Q | Ask whether to quit: Enter, Y, or Q again quits; Esc or N stays. The window's close button asks too |
@@ -655,8 +691,8 @@ came or went. Between such moments the main loop sleeps in
 ## The application
 
 The window opens on an empty world: a checkered floor under a sky, in
-Centipede's colours, with the line "Open recordings (O), or drop .npz files
-here". Recordings come from the command line, from the panel's Open button or
+Centipede's colours, with the line "Open recordings or models (O), or drop
+them here". Recordings, and model files ([Model files](#model-files)), come from the command line, from the panel's Open button or
 the `+` after the tabs, which show the system's file picker, or from files
 dropped onto the window (GLFW's drop callback), each into a tab of its own
 ([Tabs](#tabs)). The picker is tkinter's, which takes several files at once
@@ -783,7 +819,8 @@ one-line message for a bad file, a missing OpenGL, or a video file that
 cannot be written; `render` names a missing `video` extra
 the same way, refuses an output folder that does not exist before any work,
 and reports its progress on the error stream. Options may come before or after
-the files, and sizes are at least 16 pixels.
+the files, and sizes are at least 16 pixels. A file named `.xml` is read as a
+MuJoCo model ([Model files](#model-files)), in either subcommand.
 
 ## The program
 

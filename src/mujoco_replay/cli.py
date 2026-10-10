@@ -1,10 +1,11 @@
 """The ``mujoco-replay`` command: ``view`` (the default) and ``render``.
 
-Both read the recordings given and check them before opening anything; ``view``
-also starts without any, on the empty world. The window and the video modules
-are imported only when they run, so that the command starts quickly. The
-saved settings supply what the command line leaves out; ``--mode`` and
-``--worlds`` given to ``view`` are remembered, as the panel's changes are.
+Both read the recordings given, or MuJoCo model files read as recordings, and
+check them before opening anything; ``view`` also starts without any, on the
+empty world. The window and the video modules, and MuJoCo, are imported only
+when they run, so that the command starts quickly. The saved settings supply
+what the command line leaves out; ``--mode`` and ``--worlds`` given to
+``view`` are remembered, as the panel's changes are.
 """
 
 import argparse
@@ -20,7 +21,6 @@ from mujoco_replay.recording import (
     Recording,
     RecordingError,
     in_name_order,
-    read_recording,
 )
 from mujoco_replay.selection import MAX_WORLDS, choose_worlds
 from mujoco_replay.settings import PRESETS, load_settings, save_settings, user_folder
@@ -54,7 +54,9 @@ def main(arguments: list[str] | None = None) -> int:
     if options.command == "view" and not (options.width or options.height):
         size = None  # the window takes most of the screen
     try:
-        recordings = [read_recording(path) for path in options.files]
+        from mujoco_replay.scene import read_file  # MuJoCo reads model files
+
+        recordings = [read_file(path) for path in options.files]
         worlds = [
             drawn_worlds(recording, path, count, options.ids, parser)
             for recording, path in zip(recordings, options.files, strict=True)
@@ -120,8 +122,13 @@ def pick_files(output: str) -> int:
         root.attributes("-topmost", True)
         paths = filedialog.askopenfilenames(
             parent=root,
-            title="Open recordings (Ctrl+click or Shift+click picks several)",
-            filetypes=[("Recordings", "*.npz"), ("All files", "*.*")],
+            title="Open recordings or models (Ctrl+click or Shift+click picks several)",
+            filetypes=[
+                ("Recordings and models", "*.npz *.xml"),
+                ("Recordings", "*.npz"),
+                ("MuJoCo models", "*.xml"),
+                ("All files", "*.*"),
+            ],
         )
     except Exception as error:  # the window says why, from the error stream
         print(f"{type(error).__name__}: {error}", file=sys.stderr)
@@ -154,8 +161,9 @@ def build_parser() -> argparse.ArgumentParser:
     subcommands = parser.add_subparsers(dest="command", required=True)
     view = subcommands.add_parser("view", help="open the interactive window")
     render = subcommands.add_parser("render", help="write a video")
-    view.add_argument("files", nargs="*", help="recording files, in order")
-    render.add_argument("files", nargs="+", help="recording files, in order")
+    files = "recordings (.npz) or MuJoCo model files (.xml), in order"
+    view.add_argument("files", nargs="*", help=files)
+    render.add_argument("files", nargs="+", help=files)
     for subcommand in (view, render):
         which = subcommand.add_mutually_exclusive_group()
         which.add_argument(

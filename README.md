@@ -58,7 +58,7 @@ mujoco-replay                                   # the window
 mujoco-replay render run.npz --out replay.mp4   # a video
 ```
 
-## Open recordings
+## Open recordings and models
 
 Click **Open** (or press **O**) and pick one or more `.npz` files, or drop
 them onto the window or onto the program. Each file opens in a tab of its
@@ -68,6 +68,10 @@ moment:
 | `cycle_0016` | `cycle_0304` |
 | :---: | :---: |
 | ![The early recording: the sixteen centipedes scattered, their legs flailing](docs/images/tabs-early.png) | ![The later recording at the same frame: the best centipede walking into the target's ring](docs/images/tabs-later.png) |
+
+A MuJoCo model file (`.xml`) opens the same ways, with its meshes and
+textures, standing still in the pose it is written in: a look at a model
+before any training.
 
 ## Keys
 
@@ -108,6 +112,9 @@ Scores, targets and other markers, events, and the run's settings are
 optional; [docs/recording-format.md](docs/recording-format.md) lists them all.
 
 ## Status
+
+**Stage R16, model files (2026-10-10):** a MuJoCo model file (`.xml`)
+opens in a tab as a recording does, standing still in its own pose.
 
 **Stage R15, the floor under every world (2026-10-10):** the floor is drawn
 everywhere, as the simulation has it, so a centipede that walks past the

@@ -19,8 +19,10 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
-from mujoco_replay.recording import Recording, RecordingError
+from mujoco_replay.recording import Recording, RecordingError, read_recording
 
+# The files opened as MuJoCo models instead of recordings: MuJoCo's own XML.
+MODEL_SUFFIX = ".xml"
 # Raised whenever the composition changes what it compiles, so that composites
 # cached by an older version are not used; and how many composites are kept.
 CACHE_VERSION = 3
@@ -336,6 +338,52 @@ class ComposedScene:
         self.model.geom_matid[self.ghost_geoms] = -1  # no material or texture
 
 
+def read_file(path: Path | str) -> Recording:
+    """A recording file, or a model file (``.xml``) read as a recording."""
+    if Path(path).suffix.lower() == MODEL_SUFFIX:
+        return read_model(path)
+    return read_recording(path)
+
+
+def read_model(path: Path | str) -> Recording:
+    """A MuJoCo model file as a recording of one world, standing still.
+
+    Its one frame is the pose the model is written in (``qpos0``), which
+    MuJoCo's own viewer shows first, and the frame lasts one of the model's
+    time steps. MuJoCo reads the file with the files it includes; the files
+    its assets name (meshes, textures, height fields, skins) go into the
+    recording's assets, so that the scene is composed from the recording
+    alone, and the model is compiled from them as composing will. The
+    model's sizes make the recording's setup. A model that cannot be read or
+    compiled raises ``RecordingError``.
+    """
+    path = Path(path)
+    try:
+        spec = mujoco.MjSpec.from_file(str(path))
+        assets = _carry_files(spec, path.parent)
+        model_xml = spec.to_xml()
+        model = mujoco.MjSpec.from_string(model_xml, assets=assets).compile()
+    except Exception as error:  # bad XML, a missing file, or MuJoCo's compiler
+        raise RecordingError(f"{path} cannot be read as a model: {error}") from None
+    setup = {
+        "model file": str(path),
+        "bodies": model.nbody - 1,  # beside the world body
+        "joints": model.njnt,
+        "qpos size": model.nq,
+        "actuators": model.nu,
+        "keyframes": model.nkey,
+        "timestep": float(model.opt.timestep),
+    }
+    return Recording(
+        model_xml,
+        float(model.opt.timestep),
+        model.qpos0[np.newaxis, np.newaxis],
+        assets=assets,
+        title=spec.modelname or path.stem,
+        setup=setup,
+    )
+
+
 def _name_unnamed(spec: mujoco.MjSpec) -> None:
     """Give every unnamed body and joint a name, the same one on every parse.
 
@@ -475,6 +523,45 @@ def _reduce_to(spec: mujoco.MjSpec, roots: list[str], keep_lights: bool) -> None
         for item in list(getattr(spec, group)):
             if item.name not in names:
                 spec.delete(item)
+
+
+def _carry_files(spec: mujoco.MjSpec, folder: Path) -> dict[str, bytes]:
+    """The files a model's assets name, by their paths from the model's folder.
+
+    MuJoCo looks for a mesh, height field, or skin in the compiler's
+    ``meshdir``, and for a texture in its ``texturedir``, both taken from the
+    model's folder, and finds a file among the assets by its name. Each file
+    is renamed in ``spec`` to its path from ``folder``, and the folders are
+    cleared, so that the name finds the file wherever the model is composed;
+    the shorter names MuJoCo also tries would mix up files of the same name
+    in different folders. A file outside the folder is named by its order
+    and its own name, which an unnamed asset is named after.
+    """
+    base = Path(os.path.abspath(folder))
+    files: dict[str, bytes] = {}
+
+    def carry(directory: str, name: str) -> str:
+        if not name:
+            return name  # no file: the asset is built in, or given inline
+        name = name.replace("\\", "/")  # MuJoCo takes either, on every system
+        if spec.strippath:
+            name = name.rsplit("/", 1)[-1]
+        place = Path(os.path.normpath(base / directory.replace("\\", "/") / name))
+        try:
+            key = place.relative_to(base).as_posix()
+        except ValueError:  # outside the model's folder
+            key = f"outside/{len(files)}/{place.name}"
+        files[key] = place.read_bytes()
+        return key
+
+    for item in [*spec.meshes, *spec.hfields, *spec.skins]:
+        item.file = carry(spec.meshdir, item.file)
+    for texture in spec.textures:
+        texture.file = carry(spec.texturedir, texture.file)
+        texture.cubefiles = [carry(spec.texturedir, name) for name in texture.cubefiles]
+    spec.meshdir = spec.texturedir = ""
+    spec.strippath = False
+    return files
 
 
 def _delete_unused_parts(spec: mujoco.MjSpec) -> None:

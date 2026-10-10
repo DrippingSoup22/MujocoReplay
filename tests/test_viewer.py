@@ -29,14 +29,6 @@ def window(opengl):
     glfw.destroy_window(window)
 
 
-@pytest.fixture
-def saved(tmp_path, monkeypatch):
-    """The settings folder, in the test's own folder, on every system."""
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    monkeypatch.setenv("APPDATA", str(tmp_path))
-    monkeypatch.setenv("HOME", str(tmp_path))
-
-
 def test_dropped_recordings_play_with_the_settings_count_of_worlds(
     window, make_recording, tmp_path
 ):
@@ -52,6 +44,23 @@ def test_dropped_recordings_play_with_the_settings_count_of_worlds(
 
     assert len(viewer.recordings) == 2 and viewer.playback.file_index == 0
     assert len(viewer.scene.worlds) == 4
+    viewer.renderer.close()
+
+
+def test_a_model_file_opens_in_a_tab_of_its_own_standing_still(
+    window, small_model, tmp_path
+):
+    path = tmp_path / "small.xml"
+    path.write_text(small_model)
+    viewer = Viewer(window, Settings(cache=False), 0.3)
+
+    viewer._on_drop(window, [str(path)])
+    viewer._take_files()
+    viewer._draw()
+
+    assert viewer._names == ["small"]  # the tab, after the file
+    recording = viewer.scene.recording
+    assert recording.title == "small" and recording.qpos.shape[:2] == (1, 1)
     viewer.renderer.close()
 
 

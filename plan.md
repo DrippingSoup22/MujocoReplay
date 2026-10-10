@@ -1,14 +1,15 @@
 # Development plan
 
-This plan builds MujocoReplay in fifteen stages; the user asked for the sixth
+This plan builds MujocoReplay in sixteen stages; the user asked for the sixth
 on 2026-10-07, once the first five were built, for the seventh, a full review,
 once the sixth was, for the eighth, a program to start it from, once the
 seventh was, and for the ninth, any world on its own and new defaults, on
 2026-10-08; the tenth, rings and radii that change, Centipede asked for on
 the user's behalf the same day, and the user asked for the eleventh, tabs,
 the twelfth, an icon with Loop and Play next, and the thirteenth, an
-executable, on 2026-10-09, and the fourteenth, a camera that follows, and
-the fifteenth, the floor under every world, on 2026-10-10. It is paired with Stage 7 of the
+executable, on 2026-10-09, and the fourteenth, a camera that follows, the
+fifteenth, the floor under every world, and the sixteenth, model files, on
+2026-10-10. It is paired with Stage 7 of the
 sibling `Centipede` project (`../Centipede/plan.md`), which records the files
 this tool replays. The format is fixed in
 [docs/recording-format.md](docs/recording-format.md) and the design in
@@ -677,6 +678,32 @@ skip without OpenGL); the video test's robot, posed at random half under
 the floor, now stands on it, since the floor that reaches it hides what
 lies under it.
 
+### R16 — Model files
+
+Asked by the user on 2026-10-10: to open a plain MuJoCo model file in the
+application and see the model as it is, even standing still.
+
+**Builds:** a model file (`.xml`) read as a recording of one world in the
+pose it is written in (`qpos0`), with the files it includes and the files
+its assets name carried in the recording, so that it opens wherever a
+recording opens: the file picker, which offers both kinds, a drop, the
+command line, the program, and a video. docs/design.md describes it.
+
+**Done when:** tests show a model with an included file, a texture, and two
+meshes of the same file name in two folders read in its own pose and
+composed with each mesh its own file after its folder is deleted; files told
+apart by their suffix, and a model whose mesh is missing reported; a model
+file opening in a tab of its own; and the command writing a video of one. In
+the window, a real robot model opens with its meshes and textures.
+
+**Result (2026-10-10):** built; the user's check pending. Unitree's Go2 and
+Franka's Panda from MuJoCo Menagerie, and Centipede's model, opened in the
+window driven under the virtual display and offscreen, each standing in its
+own pose, the Go2 with its textured shell; two `scene.xml` tabs are told
+apart by their folders. 145 tests pass (48 draw and skip without OpenGL).
+Keyframes are not shown as frames, since playback starting by itself would
+run through them; the overlay shows such a file as one world of rank 1.
+
 ## Status
 
 | Stage | Status |
@@ -696,3 +723,4 @@ lies under it.
 | R13 — The executable | Built (2026-10-09); checked by the user on Windows, then reduced to one program; merged into `main` |
 | R14 — A camera that follows | Built (2026-10-10); merged into `main`; the user's check pending |
 | R15 — The floor under every world | Built (2026-10-10); merged into `main`; the user's check pending |
+| R16 — Model files | Built (2026-10-10); the user's check pending |

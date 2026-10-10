@@ -1,13 +1,16 @@
 """Tests for the composite scene: its copies, their poses, and their colours."""
 
+import shutil
+import struct
+import zlib
 from pathlib import Path
 
 import mujoco
 import numpy as np
 import pytest
 
-from mujoco_replay.recording import Recording, RecordingError
-from mujoco_replay.scene import ComposedScene, _cache_key
+from mujoco_replay.recording import Recording, RecordingError, write_recording
+from mujoco_replay.scene import ComposedScene, _cache_key, read_file, read_model
 
 CENTIPEDE_MODEL = (
     Path(__file__).resolve().parents[2] / "Centipede" / "models" / "assembly_v2.xml"
@@ -232,3 +235,114 @@ def test_assets_that_differ_only_in_where_one_ends_get_different_composites(
         return _cache_key(recording, ["robot"], 1)
 
     assert key({"a.obj": b"T", "b.obj": b"C"}) != key({"a.obj": b"Tb.objC"})
+
+
+# A model in a folder of its own, as models come: the main file includes the
+# robot, whose meshes and texture sit in the compiler's folders, two meshes
+# with the same file name in two folders among them.
+FEET_MODEL = """
+<mujoco model="feet">
+  <compiler meshdir="meshes" texturedir="textures"/>
+  <asset>
+    <mesh name="left" file="left/foot.obj"/>
+    <mesh name="right" file="right/foot.obj"/>
+    <texture name="grid" type="2d" file="grid.png"/>
+    <material name="grid" texture="grid"/>
+  </asset>
+  <worldbody>
+    <geom name="floor" type="plane" size="1 1 0.1"/>
+    <include file="robot.xml"/>
+  </worldbody>
+  <keyframe>
+    <key name="up" qpos="0 0 2 1 0 0 0 3 0 2 1 0 0 0"/>
+  </keyframe>
+</mujoco>
+"""
+FEET_ROBOT = """
+<mujoco>
+  <body name="a" pos="0 0 0.5">
+    <freejoint/>
+    <geom type="mesh" mesh="left" material="grid"/>
+  </body>
+  <body name="b" pos="1 0 0.5">
+    <freejoint/>
+    <geom type="mesh" mesh="right"/>
+  </body>
+</mujoco>
+"""
+TETRAHEDRON = "v 0 0 0\nv 1 0 0\nv 0 1 0\nv 0 0 1\nf 1 3 2\nf 1 2 4\nf 1 4 3\nf 2 3 4\n"
+PYRAMID = (
+    "v 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\nv 0.5 0.5 1\n"
+    "f 1 3 2\nf 1 4 3\nf 1 2 5\nf 2 3 5\nf 3 4 5\nf 4 1 5\n"
+)
+
+
+def png(width: int, height: int) -> bytes:
+    """A grey RGB image as a PNG file, from the standard library alone."""
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+
+    rows = b"".join(b"\0" + b"\x80" * 3 * width for _ in range(height))
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + b"".join(
+        (
+            chunk(b"IHDR", header),
+            chunk(b"IDAT", zlib.compress(rows)),
+            chunk(b"IEND", b""),
+        )
+    )
+
+
+def feet_folder(where: Path) -> Path:
+    """FEET_MODEL and its files in a folder; the main file's path."""
+    for name, content in {
+        "feet.xml": FEET_MODEL,
+        "robot.xml": FEET_ROBOT,
+        "meshes/left/foot.obj": TETRAHEDRON,
+        "meshes/right/foot.obj": PYRAMID,
+    }.items():
+        (where / name).parent.mkdir(parents=True, exist_ok=True)
+        (where / name).write_text(content)
+    (where / "textures").mkdir()
+    (where / "textures" / "grid.png").write_bytes(png(4, 4))
+    return where / "feet.xml"
+
+
+def test_a_model_file_reads_as_one_world_in_its_own_pose_with_its_files(tmp_path):
+    path = feet_folder(tmp_path / "feet")
+    expected = mujoco.MjModel.from_xml_path(str(path))
+
+    recording = read_model(path)
+    shutil.rmtree(tmp_path / "feet")  # the recording needs the folder no more
+    scene = ComposedScene(recording, np.arange(1))
+
+    assert recording.title == "feet" and recording.qpos.shape == (1, 1, 14)
+    assert np.allclose(recording.qpos[0, 0], expected.qpos0)  # not the keyframe
+    assert sorted(recording.assets) == [
+        "meshes/left/foot.obj",
+        "meshes/right/foot.obj",
+        "textures/grid.png",
+    ]
+    vertices = {
+        name: int(scene.model.mesh_vertnum[scene.model.mesh(f"w0_{name}").id])
+        for name in ("left", "right")
+    }
+    assert vertices == {"left": 4, "right": 5}  # each foot its own file
+    assert scene.model.tex_width[scene.model.texture("w0_grid").id] == 4  # the PNG's
+    assert recording.setup["bodies"] == 2 and recording.setup["keyframes"] == 1
+
+
+def test_files_are_read_as_models_or_recordings_by_their_suffix(
+    tmp_path, make_recording
+):
+    stored = tmp_path / "run.npz"
+    write_recording(stored, make_recording(frames=2, worlds=3))
+    model = feet_folder(tmp_path)
+    shouting = model.rename(tmp_path / "FEET.XML")
+    (tmp_path / "meshes" / "right" / "foot.obj").unlink()
+
+    assert read_file(stored).qpos.shape[:2] == (2, 3)
+    with pytest.raises(RecordingError, match="FEET.XML cannot be read as a model"):
+        read_file(shouting)  # a model, by its suffix, whose foot is missing

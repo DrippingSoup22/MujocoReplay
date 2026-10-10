@@ -75,6 +75,14 @@ def make_recording():
     return make
 
 
+@pytest.fixture
+def saved(tmp_path, monkeypatch):
+    """The settings and cache folders, in the test's own folder, on every system."""
+    for variable in ("XDG_CONFIG_HOME", "XDG_CACHE_HOME", "APPDATA", "LOCALAPPDATA"):
+        monkeypatch.setenv(variable, str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+
 @pytest.fixture(scope="session")
 def opengl():
     """Skip every drawing test where no OpenGL context can be made.

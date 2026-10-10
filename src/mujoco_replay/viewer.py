@@ -34,10 +34,9 @@ from mujoco_replay.recording import (
     Recording,
     RecordingError,
     in_name_order,
-    read_recording,
 )
 from mujoco_replay.render import SceneRenderer, setup_lines, world_rank
-from mujoco_replay.scene import ComposedScene
+from mujoco_replay.scene import ComposedScene, read_file
 from mujoco_replay.selection import MAX_WORLDS, choose_worlds, world_counts
 from mujoco_replay.settings import (
     GHOST_STRENGTHS,
@@ -146,7 +145,7 @@ HELP = [
     "Wheel, middle drag: zoom",
     "Click the timeline: go there",
     "H: overlay   I: setup",
-    "O: open recordings",
+    "O: open recordings or models",
     "Tab: panel   F1, ?: these keys",
     "Q, Esc: quit (asks first)",
 ]
@@ -239,7 +238,7 @@ class FilePicker:
             reason = (errors.strip().splitlines() or ["no reason given"])[-1]
             raise RuntimeError(
                 f"The file picker could not open ({reason}); "
-                "drop recordings onto the window instead."
+                "drop the files onto the window instead."
             )
         return [line for line in chosen.splitlines() if line.strip()]
 
@@ -384,7 +383,7 @@ class Viewer:
                 shown = tab if shown is None else shown
                 continue
             try:
-                recordings.append(read_recording(path))
+                recordings.append(read_file(path))
                 opened.append(path)
             except RecordingError as error:
                 problems.append(str(error))
@@ -463,7 +462,7 @@ class Viewer:
             left=self._left,
             inset=self._inset,
             message=self._message,
-            hint="" if loaded else "Open recordings (O), or drop .npz files here",
+            hint="" if loaded else "Open recordings or models (O), or drop them here",
             fresh=first,  # a frame to time, even when only the overlay changed
             top=self._top,
         )
@@ -525,8 +524,8 @@ class Viewer:
         playback = self.playback
         if playback is None:
             rows += [
-                ui.Buttons((("Open recordings ...", "open"),)),
-                ui.Note("or drop .npz files on the window"),
+                ui.Buttons((("Open files ...", "open"),)),
+                ui.Note("or drop .npz or .xml files here"),
             ]
         else:
             rows.append(ui.Buttons((("Open ...", "open"), ("Close all", "close all"))))
