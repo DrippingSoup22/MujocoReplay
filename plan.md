@@ -723,4 +723,4 @@ run through them; the overlay shows such a file as one world of rank 1.
 | R13 — The executable | Built (2026-10-09); checked by the user on Windows, then reduced to one program; merged into `main` |
 | R14 — A camera that follows | Built (2026-10-10); merged into `main`; the user's check pending |
 | R15 — The floor under every world | Built (2026-10-10); merged into `main`; the user's check pending |
-| R16 — Model files | Built (2026-10-10); the user's check pending |
+| R16 — Model files | Built (2026-10-10); merged into `main`; the user's check pending |
