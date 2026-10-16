@@ -1,6 +1,6 @@
 # Development plan
 
-This plan builds MujocoReplay in sixteen stages; the user asked for the sixth
+This plan builds MujocoReplay in seventeen stages; the user asked for the sixth
 on 2026-10-07, once the first five were built, for the seventh, a full review,
 once the sixth was, for the eighth, a program to start it from, once the
 seventh was, and for the ninth, any world on its own and new defaults, on
@@ -9,7 +9,8 @@ the user's behalf the same day, and the user asked for the eleventh, tabs,
 the twelfth, an icon with Loop and Play next, and the thirteenth, an
 executable, on 2026-10-09, and the fourteenth, a camera that follows, the
 fifteenth, the floor under every world, and the sixteenth, model files, on
-2026-10-10. It is paired with Stage 7 of the
+2026-10-10, and Centipede asked for the seventeenth, paths, through the user
+on 2026-10-16. It is paired with Stage 7 of the
 sibling `Centipede` project (`../Centipede/plan.md`), which records the files
 this tool replays. The format is fixed in
 [docs/recording-format.md](docs/recording-format.md) and the design in
@@ -704,6 +705,41 @@ apart by their folders. 145 tests pass (48 draw and skip without OpenGL).
 Keyframes are not shown as frames, since playback starting by itself would
 run through them; the overlay shows such a file as one world of rank 1.
 
+### R17 — Paths
+
+Asked by Centipede through the user on 2026-10-16, in a handoff file: in
+the cooperators study's next cycle the head's tip draws a line on the
+floor, which every follower is paid to follow and its tail erases as it
+passes, and the user wants to see that line in the replay, to judge by eye
+how well the body follows it. Point markers cannot draw a line: each would
+carry a beacon.
+
+**Builds:** a general kind of marker, a path: `path_names` and
+`path_points` (`(T, K, P, Q, 3)`, padded with NaN), a group, read, written,
+and checked like the others, with no new format version, since readers made
+before it ignore its keys; drawn for the highlighted world as line segments
+lifted above the floor, broken where a point is not finite, in a colour of
+its own with its name at its newest end, hidden with the markers, and taken
+in by framing. docs/recording-format.md and docs/design.md describe it.
+
+**Done when:** tests show paths and their padding surviving a round trip
+at version 1, files and recordings with a path group in part or of the
+wrong shape refused, a scene giving its drawn worlds' paths at the frame
+shown, the highlighted world's path drawn broken where a point is missing
+with its name at its newest end, another world's not drawn until it is
+highlighted, the markers' switch hiding it, and framing taking it in; in the
+window, a stand-in of the head's line drawn under a walking centipede.
+
+**Result (2026-10-16):** built; Centipede's first recordings with paths,
+and the user's check, pending. A stand-in, posed from R14's walking
+centipedes, gives each world a path along the floor under where its head's
+tip has been, of 60 or 200 points; offscreen and in the window under the
+virtual display, the cyan line runs behind the head to its tip, where its
+name stands, and passes under the body; M hides it with the target and the
+range ring. Adding 199 segments takes 1.4 ms per frame. 154 tests pass (50
+draw and skip without OpenGL). Centipede's reply note, with the keys as
+built, is outside the repository, as the rules ask.
+
 ## Status
 
 | Stage | Status |
@@ -724,3 +760,4 @@ run through them; the overlay shows such a file as one world of rank 1.
 | R14 — A camera that follows | Built (2026-10-10); merged into `main`; the user's check pending |
 | R15 — The floor under every world | Built (2026-10-10); merged into `main`; the user's check pending |
 | R16 — Model files | Built (2026-10-10); merged into `main`; the user's check pending |
+| R17 — Paths | Built (2026-10-16); Centipede's first recordings with paths, and the user's check, pending |

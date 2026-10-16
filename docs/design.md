@@ -194,6 +194,27 @@ hide it. A marker's radius may change per frame (`marker_radius` of shape
 `(T, K, M)`), as Centipede's range does at each new episode; every marker,
 ring or sphere, is drawn at the current frame's radius.
 
+A path (`path_names`, `path_points`), asked for by Centipede through the
+user on 2026-10-16, is a line through a world's points at each frame: in
+Centipede's cooperators study the head's tip draws a line on the floor that
+every follower is paid to follow, and the user wants to judge by eye how well
+the body follows it; any trajectory, planned route, or trail fits it as well.
+Point markers could not show it, since each would carry a beacon. A path is
+drawn for the highlighted world alone, as rings are, so that many worlds'
+lines do not cover the view, and hides with the markers (`M`). Its
+consecutive points are joined by line segments (`mjGEOM_LINE` with
+`mjv_connector`), 2 pixels wide at font scale 100, lifted as a ring is above
+its points so that the floor under them cannot hide them; a point that is
+not finite breaks the line, so a path shorter than its array pads its end
+with NaN. The paths take cyan, amber, and green in turn, apart from the
+markers' magenta, and each path's name stands at its newest end, its last
+point; the newest segments are added first, should the scene's room run out.
+Framing takes in the highlighted world's paths. A path of 200 points adds
+199 segments, which took 1.4 ms per frame in Python here, against Centipede's
+head line of a few millimetres between points over about 10 cm; points that
+mark places along a path, such as a follower's erase point, are point
+markers, which the format already has.
+
 ## Model files
 
 A MuJoCo model file (`.xml`) opens as a recording does, to see a model as it

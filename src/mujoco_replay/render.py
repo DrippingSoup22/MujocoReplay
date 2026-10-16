@@ -35,6 +35,14 @@ BEACON = (0.5, 0.006, 0.04)
 RING_SEGMENTS = 64
 RING_PIXELS = 3
 RING_LIFT = 0.02
+# A path: its line segments' width in pixels at font scale 100, and the
+# colours its paths take in turn, apart from the markers' magenta. A path is
+# lifted as a ring is.
+PATH_PIXELS = 2
+PATH_RGBA = np.array(
+    [(0.2, 0.85, 1.0, 0.9), (1.0, 0.8, 0.2, 0.9), (0.45, 1.0, 0.45, 0.9)],
+    dtype=np.float32,
+)
 # Where framing touches a ring: its four points along the horizontal axes.
 RING_EDGES = np.array(
     [(1.0, 0.0, 0.0), (-1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, -1.0, 0.0)]
@@ -137,6 +145,9 @@ class SceneRenderer:
         rings = (scene.recording.marker_shapes or ()).count("ring")
         shapes = (len(scene.worlds) + 2) * markers  # a beacon is two more
         shapes += RING_SEGMENTS * rings  # the highlighted world's alone
+        paths = scene.recording.path_points
+        if paths is not None:  # the highlighted world's alone too
+            shapes += paths.shape[2] * max(paths.shape[3] - 1, 0)
         needed = scene.model.ngeom + shapes + SPARE_SHAPES
         if new_model or self._shapes.maxgeom < needed:
             self._shapes = mujoco.MjvScene(scene.model, maxgeom=needed)
@@ -221,6 +232,7 @@ class SceneRenderer:
                 self._aim_shadows()
             if self.markers_visible:
                 self._add_markers()
+                self._add_paths()
         below = max(1, height - top)
         viewport = mujoco.MjrRect(left, 0, max(1, width - left), below)
         if windowed:  # draw a share offscreen, scale it up
@@ -371,7 +383,7 @@ class SceneRenderer:
     def frame_all(self) -> None:
         """Look at every drawn world and its markers from a raised angle.
 
-        The highlighted world's rings are taken in whole. A world whose
+        The highlighted world's rings and paths are taken in whole. A world whose
         positions diverged, to infinity or far beyond the others, is left
         out, so that it cannot take the camera with it. Following goes on, if
         on: from this distance and angle, the camera then looks at the
@@ -392,6 +404,9 @@ class SceneRenderer:
             for centre, radius, kind in shown:
                 if kind == "ring":
                     points.extend(centre + radius * RING_EDGES)
+        paths = scene.path_points()
+        if paths is not None:  # their padding is not finite, and left out
+            points.extend(paths[scene.highlight].reshape(-1, 3))
         points = np.array(points)
         points = points[np.isfinite(points).all(axis=1)]
         if len(points):  # around the median, or the best world if none is near it
@@ -564,15 +579,53 @@ class SceneRenderer:
         flat = np.zeros_like(angles)
         circle = np.stack([np.cos(angles), np.sin(angles), flat], axis=1)
         points = centre + radius * circle + (0.0, 0.0, RING_LIFT * extent)
-        width = RING_PIXELS * self._font_scale / 100
-        if self._offscreen_size is None:  # drawn at a share of the window
-            width *= self.graphics.resolution / 100
+        width = self._line_width(RING_PIXELS)
         line = mujoco.mjtGeom.mjGEOM_LINE
         for index, (start, end) in enumerate(zip(points[:-1], points[1:], strict=True)):
             label = name if index == 0 else ""
             shape = self._add_shape(line, (0.0, 0.0, 0.0), start, MARKER_RGBA, label)
             if shape is not None:
                 mujoco.mjv_connector(shape, line, width, start, end)
+
+    def _add_paths(self) -> None:
+        """The highlighted world's paths, as line segments a few pixels wide.
+
+        A path joins its points in order; a point that is not finite, as the
+        padding after a short path's end, breaks it there. Its name is drawn
+        at its newest end, its last point, and the newest segments come
+        first, should the scene run out of room. The paths of every drawn
+        world would cover the view, as their rings would.
+        """
+        scene = self.scene
+        paths = scene.path_points()
+        if paths is None:
+            return
+        lift = np.array([0.0, 0.0, RING_LIFT * float(scene.model.stat.extent)])
+        width = self._line_width(PATH_PIXELS)
+        line = mujoco.mjtGeom.mjGEOM_LINE
+        shown = paths[scene.highlight].astype(np.float64) + lift
+        for index, (points, name) in enumerate(
+            zip(shown, scene.recording.path_names, strict=True)
+        ):
+            rgba = PATH_RGBA[index % len(PATH_RGBA)]
+            whole = np.isfinite(points).all(axis=1)
+            joined = np.flatnonzero(whole[:-1] & whole[1:])
+            for segment in joined[::-1]:
+                newer, older = points[segment + 1], points[segment]
+                label = name if segment == joined[-1] else ""
+                shape = self._add_shape(line, (0.0, 0.0, 0.0), newer, rgba, label)
+                if shape is None:
+                    return
+                mujoco.mjv_connector(shape, line, width, newer, older)
+
+    def _line_width(self, pixels: float) -> float:
+        """A line's width for MuJoCo, which takes pixels: ``pixels`` at font
+        scale 100, wider at higher scales and narrower at a lower share of the
+        window, so that it looks the same on the screen."""
+        width = pixels * self._font_scale / 100
+        if self._offscreen_size is None:  # drawn at a share of the window
+            width *= self.graphics.resolution / 100
+        return width
 
     def _add_shape(
         self, kind, size, position, rgba, label: str = ""

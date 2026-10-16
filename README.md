@@ -108,10 +108,15 @@ model_xml = mujoco.MjSpec.from_file("model.xml").to_xml()  # the whole model
 write_recording("run.npz", Recording(model_xml, frame_seconds, qpos))
 ```
 
-Scores, targets and other markers, events, and the run's settings are
-optional; [docs/recording-format.md](docs/recording-format.md) lists them all.
+Scores, targets and other markers, paths such as a trail, events, and the
+run's settings are optional; [docs/recording-format.md](docs/recording-format.md)
+lists them all.
 
 ## Status
+
+**Stage R17, paths (2026-10-16):** a recording can carry lines that change
+from frame to frame, such as the head's line in Centipede's cooperators study,
+drawn on the floor for the highlighted world.
 
 **Stage R16, model files (2026-10-10):** a MuJoCo model file (`.xml`)
 opens in a tab as a recording does, standing still in its own pose.

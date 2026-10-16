@@ -3,10 +3,10 @@
 A recording is one NumPy `.npz` file that holds the positions of many worlds of
 one MuJoCo model over a stretch of time, together with everything needed to
 replay it: the model itself, which bodies belong to each world, a score per
-world, markers, events, and the setup of the run that produced it. A recording
-is self-contained: nothing outside the file is needed to replay it. This
-document is the contract between producers, such as the sibling `Centipede`
-project, and this tool. The writer and the reader live in
+world, markers, paths, events, and the setup of the run that produced it. A
+recording is self-contained: nothing outside the file is needed to replay it.
+This document is the contract between producers, such as the sibling
+`Centipede` project, and this tool. The writer and the reader live in
 `src/mujoco_replay/recording.py`, and the rank selection shared with producers
 in `src/mujoco_replay/selection.py`.
 
@@ -25,6 +25,8 @@ are stored as NumPy unicode arrays and binary assets as `uint8` arrays.
 | `K` | Number of worlds in the file |
 | `nq` | Number of position coordinates of the model (`MjModel.nq`), in MuJoCo's own `qpos` layout |
 | `M` | Number of markers per world |
+| `P` | Number of paths per world |
+| `Q` | Most points a path has at a frame |
 | `E` | Number of events |
 | `I` | Number of per-frame info values |
 
@@ -57,6 +59,8 @@ Optional keys:
 | `marker_positions` | float32, `(T, K, M, 3)` | none | Each marker's world position at each frame, in metres |
 | `marker_radius` | float32, `(M,)` or `(T, K, M)` | none | Each marker's radius in metres: one per marker, or one per frame, world, and marker, for a radius that changes, such as a range that each episode sets |
 | `marker_shapes` | str, `(M,)` | every `"sphere"` | How each marker is drawn: `"sphere"`, a ball of the marker's radius, or `"ring"`, a circle of that radius lying flat in the horizontal plane through the marker's position. It may join the marker group, never come without it |
+| `path_names` | str, `(P,)` | none | Names of per-world lines to draw, such as a trajectory, a planned route, or a trail |
+| `path_points` | float32, `(T, K, P, Q, 3)` | none | Each path's points at each frame, in metres, in order, its newest last: a line joins consecutive points. A point that is not finite breaks the line there, so a path of fewer than `Q` points pads its end with NaN |
 | `frame_info_names` | str, `(I,)` | none | Names of values that describe each frame, such as the number of updates done so far |
 | `frame_info` | float64, `(T, I)` | none | Those values at each frame; shown in the overlay |
 | `event_frames` | int64, `(E,)` | none | Frames at which something happened, from `0` to `T` inclusive; `T` means after the last frame |
@@ -69,14 +73,16 @@ Rules:
 - `qpos` uses the layout of the model compiled from `model_xml`.
 - Joints that are not inside a replicated body, such as a moving obstacle in
   the static scene, take their values from the highlighted world's row.
-- Marker, event, info, and rank keys come in groups: a group is either
+- Marker, path, event, info, and rank keys come in groups: a group is either
   complete or absent; `marker_shapes` may join the marker group.
 - `format_version` is the oldest version that holds the file: `2` when a
   marker is a ring or a marker's radius changes per frame, `1` otherwise.
   Version 2 added both on 2026-10-08, so that readers made before then, which
   read version 1 alone, refuse such a file with a message naming
   `format_version` instead of drawing a ring as a ball, and still read every
-  other file. The reader reads both versions.
+  other file. The reader reads both versions. Paths, added on 2026-10-16,
+  need no new version: readers made before them ignore their keys, as
+  unknown keys, and draw the rest of the file as it is.
 - Each key holds the kind of values the tables give (whole numbers for ids,
   levels, ranks, and event frames; numbers, true or false, or text) with the
   number of dimensions its shape gives; shapes must agree with each other.
@@ -168,7 +174,10 @@ after its commit `1b42442`, 2026-10-08):
 
 One world-frame costs `4·nq` bytes: 276 bytes for a model with 69 position
 coordinates, and each marker 12 more for its position, or 16 when its radius
-changes per frame. For that model, without markers:
+changes per frame. Each path costs `12·Q` more: a path of 200 points, 2.4 kB
+per world-frame, weighs as much as about nine worlds' positions of that model,
+so a producer thins a path's points to what the eye needs. For that model,
+without markers or paths:
 
 | Recording | Size |
 | --- | --- |

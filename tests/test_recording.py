@@ -22,6 +22,8 @@ MARKERS = {
     "marker_positions": np.zeros((3, 2, 1, 3)),
     "marker_radius": np.ones(1),
 }
+# A whole path group: 1 path of up to 5 points.
+PATHS = {"path_names": np.array(["line"]), "path_points": np.zeros((3, 2, 1, 5, 3))}
 
 
 def full_recording() -> Recording:
@@ -135,6 +137,10 @@ def test_a_minimal_recording_reads_with_the_defaults(tmp_path):
         ({**MARKERS, "marker_shapes": np.array(["square"])}, "marker_shapes"),
         ({**MARKERS, "marker_shapes": np.array(["ring", "ring"])}, "marker_shapes"),
         ({"marker_shapes": np.array(["ring"])}, "marker_names"),
+        ({"path_names": np.array(["line"])}, "path_points"),
+        ({**PATHS, "path_points": np.zeros((3, 2, 2, 5, 3))}, "path_points"),
+        ({**PATHS, "path_points": np.zeros((3, 2, 1, 5, 2))}, "path_points"),
+        ({**PATHS, "path_points": np.zeros((3, 2, 5, 3))}, "path_points"),
     ],
 )
 def test_a_file_that_breaks_the_format_is_rejected_by_key(tmp_path, change, key):
@@ -282,3 +288,35 @@ def test_files_are_put_in_the_order_of_their_names_with_numbers_by_value():
 
     assert in_name_order(names) == ["Cycle_1.npz", "cycle_2.npz", "cycle_10.npz"]
     assert in_name_order(["²1.npz", "a.npz"]) == ["a.npz", "²1.npz"]
+
+
+def test_paths_come_back_with_their_padding_and_need_no_new_version(tmp_path):
+    path, plain = tmp_path / "paths.npz", tmp_path / "plain.npz"
+    points = np.full((3, 2, 2, 4, 3), np.nan, dtype=np.float32)
+    points[..., :3, :] = np.arange(9, dtype=np.float32).reshape(3, 3)  # 3 of 4
+    recording = Recording(
+        MODEL,
+        0.02,
+        np.zeros((3, 2, 4)),
+        path_names=("head line", "trail"),
+        path_points=points,
+    )
+
+    write_recording(path, recording)
+    write_recording(plain, full_recording())
+    loaded = read_recording(path)
+
+    assert loaded.path_names == ("head line", "trail")
+    assert np.array_equal(loaded.path_points, points, equal_nan=True)
+    assert read_recording(plain).path_names is None
+    with np.load(path) as stored:  # readers before paths ignore their keys
+        assert int(stored["format_version"]) == 1
+
+
+def test_path_points_the_reader_would_refuse_are_refused_when_made():
+    qpos = np.zeros((3, 2, 4))
+    for names, shape in ((("a", "b"), (3, 2, 1, 4, 3)), (("a",), (3, 1, 1, 4, 3))):
+        with pytest.raises(ValueError, match="path_points must have shape"):
+            Recording(MODEL, 0.02, qpos, path_names=names, path_points=np.zeros(shape))
+    with pytest.raises(ValueError, match="path_points is missing"):
+        Recording(MODEL, 0.02, qpos, path_names=("a",))

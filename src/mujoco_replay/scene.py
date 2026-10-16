@@ -208,6 +208,12 @@ class ComposedScene:
             return np.broadcast_to(radius, (len(self.worlds), len(radius)))
         return radius[self.frame_index, self.worlds]
 
+    def path_points(self) -> np.ndarray | None:
+        """Each drawn world's paths at the current frame, ``(copies, P, Q, 3)``."""
+        if self.recording.path_points is None:
+            return None
+        return self.recording.path_points[self.frame_index, self.worlds]
+
     def world_centre(self, copy: int) -> np.ndarray:
         """Copy ``copy``'s centre of mass at the current frame, over all its roots."""
         roots = self._root_bodies[copy]

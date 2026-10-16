@@ -346,3 +346,16 @@ def test_files_are_read_as_models_or_recordings_by_their_suffix(
     assert read_file(stored).qpos.shape[:2] == (2, 3)
     with pytest.raises(RecordingError, match="FEET.XML cannot be read as a model"):
         read_file(shouting)  # a model, by its suffix, whose foot is missing
+
+
+def test_a_scene_gives_its_drawn_worlds_paths_at_the_frame_shown(make_recording):
+    points = np.arange(3 * 3 * 2 * 4 * 3, dtype=np.float32).reshape(3, 3, 2, 4, 3)
+    recording = make_recording(
+        frames=3, worlds=3, path_names=("a", "b"), path_points=points
+    )
+    scene = ComposedScene(recording, np.array([2, 0]))
+
+    scene.set_frame(1)
+
+    assert np.array_equal(scene.path_points(), points[1, [2, 0]])
+    assert ComposedScene(make_recording(), np.arange(1)).path_points() is None

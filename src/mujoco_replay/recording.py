@@ -43,6 +43,8 @@ KEYS = {
     "marker_positions": ("number", 4),
     "marker_radius": ("number", None),  # (M,) or (T, K, M): checked with the markers
     "marker_shapes": ("text", 1),
+    "path_names": ("text", 1),
+    "path_points": ("number", 5),
     "frame_info_names": ("text", 1),
     "frame_info": ("number", 2),
     "event_frames": ("whole", 1),
@@ -57,6 +59,7 @@ MARKER_KEYS = ("marker_names", "marker_positions", "marker_radius")
 # How a marker is drawn: the first unless marker_shapes, which may join the
 # marker group, says otherwise.
 MARKER_SHAPES = ("sphere", "ring")
+PATH_KEYS = ("path_names", "path_points")
 INFO_KEYS = ("frame_info_names", "frame_info")
 EVENT_KEYS = ("event_frames", "event_labels")
 RANK_KEYS = ("rank", "ranked_worlds")
@@ -76,9 +79,9 @@ class Recording:
     Only ``model_xml``, ``frame_seconds``, and ``qpos`` are required. A ``None``
     for ``score``, ``world_ids``, or ``episode_start`` becomes the default on
     creation, and so does one for ``marker_shapes`` when markers are given:
-    every marker a sphere. ``level``, ``level_count``, and the marker, info,
-    event, and rank groups stay ``None`` when absent. Arrays are cast to the
-    format's types.
+    every marker a sphere. ``level``, ``level_count``, and the marker, path,
+    info, event, and rank groups stay ``None`` when absent. Arrays are cast to
+    the format's types.
     """
 
     model_xml: str
@@ -104,15 +107,18 @@ class Recording:
     rank: np.ndarray | None = None  # (K,) int64
     ranked_worlds: int | None = None
     marker_shapes: tuple[str, ...] | None = None  # (M,), each of MARKER_SHAPES
+    path_names: tuple[str, ...] | None = None
+    path_points: np.ndarray | None = None  # (T, K, P, Q, 3) float32
 
     def __post_init__(self) -> None:
         """Cast the arrays and fill the defaults of the per-world fields.
 
-        A group given in part, or a level count, ranks, or marker radii and
-        shapes that break the format's rules, raise ``ValueError``, so that
-        the writer never writes a file the reader would refuse.
+        A group given in part, or a level count, ranks, marker radii and
+        shapes, or path points that break the format's rules, raise
+        ``ValueError``, so that the writer never writes a file the reader
+        would refuse.
         """
-        for group in (MARKER_KEYS, INFO_KEYS, EVENT_KEYS, RANK_KEYS):
+        for group in (MARKER_KEYS, PATH_KEYS, INFO_KEYS, EVENT_KEYS, RANK_KEYS):
             given = [name for name in group if getattr(self, name) is not None]
             if given and len(given) < len(group):
                 missing = next(name for name in group if name not in given)
@@ -130,6 +136,7 @@ class Recording:
             "episode_start": (np.zeros((frames, worlds)), np.bool_),
             "marker_positions": (None, np.float32),
             "marker_radius": (None, np.float32),
+            "path_points": (None, np.float32),
             "frame_info": (None, np.float64),
             "event_frames": (None, np.int64),
             "rank": (None, np.int64),
@@ -145,6 +152,7 @@ class Recording:
             "replicated_bodies",
             "marker_names",
             "marker_shapes",
+            "path_names",
             "frame_info_names",
             "event_labels",
         ):
@@ -166,6 +174,10 @@ class Recording:
                 set_field(self, "marker_shapes", (MARKER_SHAPES[0],) * markers)
             problem = problem or _marker_problem(
                 frames, worlds, markers, self.marker_radius, self.marker_shapes
+            )
+        if self.path_names is not None:
+            problem = problem or _path_problem(
+                frames, worlds, len(self.path_names), self.path_points.shape
             )
         if problem is not None:
             raise ValueError(" ".join(problem))
@@ -221,6 +233,9 @@ def write_recording(path: Path | str, recording: Recording) -> None:
             arrays["marker_shapes"] = _strings(recording.marker_shapes)
         if "marker_shapes" in arrays or recording.marker_radius.ndim > 1:
             arrays["format_version"] = np.int64(FORMAT_VERSIONS[1])
+    if recording.path_names is not None:
+        arrays["path_names"] = _strings(recording.path_names)
+        arrays["path_points"] = recording.path_points
     if recording.frame_info_names is not None:
         arrays["frame_info_names"] = _strings(recording.frame_info_names)
         arrays["frame_info"] = recording.frame_info
@@ -275,7 +290,7 @@ def _read(path: Path) -> Recording:
         raise fail(
             "format_version", f"is {version}, but this MujocoReplay reads 1 and 2"
         )
-    for group in (MARKER_KEYS, INFO_KEYS, EVENT_KEYS, RANK_KEYS):
+    for group in (MARKER_KEYS, PATH_KEYS, INFO_KEYS, EVENT_KEYS, RANK_KEYS):
         present = [key in arrays for key in group]
         if any(present) and not all(present):
             missing = [
@@ -310,6 +325,12 @@ def _read(path: Path) -> Recording:
             markers,
             arrays["marker_radius"],
             arrays.get("marker_shapes"),
+        )
+        if problem is not None:
+            raise fail(*problem)
+    if "path_names" in arrays:
+        problem = _path_problem(
+            frames, worlds, len(arrays["path_names"]), arrays["path_points"].shape
         )
         if problem is not None:
             raise fail(*problem)
@@ -385,6 +406,8 @@ def _read(path: Path) -> Recording:
         rank=optional("rank"),
         ranked_worlds=optional("ranked_worlds"),
         marker_shapes=optional("marker_shapes"),
+        path_names=optional("path_names"),
+        path_points=optional("path_points"),
     )
 
 
@@ -413,6 +436,20 @@ def _marker_problem(
         if unknown:
             known = " or ".join(repr(shape) for shape in MARKER_SHAPES)
             return "marker_shapes", f"names {unknown[0]!r}, which is not {known}"
+    return None
+
+
+def _path_problem(
+    frames: int, worlds: int, paths: int, shape: tuple[int, ...]
+) -> tuple[str, str] | None:
+    """The rule the path points break, if any, as a key and its problem.
+
+    Each world has ``P`` paths, named in ``path_names``, of up to ``Q`` points
+    each at every frame: ``path_points`` is ``(T, K, P, Q, 3)``, for any ``Q``.
+    """
+    if len(shape) != 5 or shape[:3] != (frames, worlds, paths) or shape[4] != 3:
+        expected = f"({frames}, {worlds}, {paths}, Q, 3)"
+        return "path_points", f"must have shape {expected}, has {tuple(shape)}"
     return None
 
 

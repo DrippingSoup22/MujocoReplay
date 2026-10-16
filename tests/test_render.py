@@ -6,7 +6,14 @@ import mujoco
 import numpy as np
 
 from mujoco_replay.recording import Recording
-from mujoco_replay.render import RING_SEGMENTS, SceneRenderer, _cut, _spread_floors
+from mujoco_replay.render import (
+    PATH_RGBA,
+    RING_LIFT,
+    RING_SEGMENTS,
+    SceneRenderer,
+    _cut,
+    _spread_floors,
+)
 from mujoco_replay.scene import ComposedScene
 from mujoco_replay.settings import PERFORMANCE, QUALITY
 from mujoco_replay.ui import text_width
@@ -379,3 +386,58 @@ def test_a_world_far_from_the_sun_casts_its_shadow_where_the_camera_looks(
         renderer.close()
 
     assert (images[0] - images[1] > 60).sum() > 50  # its shadow, on the floor
+
+
+def path_recording(make_recording, far: float = 1.0) -> Recording:
+    """Two worlds, each with one path, ``line``, of up to five points: the
+    first world's misses its middle point, the second's its last."""
+    points = np.full((2, 2, 1, 5, 3), np.nan, dtype=np.float32)
+    points[:, 0, 0] = [(0, 0, 0), (1, 0, 0), (np.nan,) * 3, (1, 1, 0), (far, 1, 0)]
+    points[:, 1, 0, :4] = [(0, 0, 0), (0, 1, 0), (0, 2, 0), (0, 3, 0)]
+    return make_recording(frames=2, worlds=2, path_names=("line",), path_points=points)
+
+
+def path_lines(renderer: SceneRenderer) -> list[tuple[str, np.ndarray, np.ndarray]]:
+    """The lines drawn, as their labels, positions, and colours: copies, since
+    MuJoCo's shapes are views that the next drawing overwrites."""
+    renderer.render(64, 48, hud=False)
+    shapes = renderer._shapes
+    lines = [shapes.geoms[index] for index in range(shapes.ngeom)]
+    return [
+        (line.label, line.pos.copy(), line.rgba.copy())
+        for line in lines
+        if line.type == mujoco.mjtGeom.mjGEOM_LINE
+    ]
+
+
+def test_the_highlighted_worlds_path_is_drawn_broken_where_a_point_is_missing(
+    gl_context, make_recording
+):
+    scene = ComposedScene(path_recording(make_recording, far=2.0), np.arange(2))
+    renderer = SceneRenderer(scene, offscreen_size=(64, 48))
+    lift = RING_LIFT * scene.model.stat.extent
+
+    first = path_lines(renderer)
+    scene.set_highlight(1)
+    second = path_lines(renderer)
+    renderer.markers_visible = False  # M, or the panel's Markers
+    hidden = path_lines(renderer)
+    renderer.close()
+
+    assert len(first) == 2  # 0-1 and 3-4: the missing point breaks the line
+    named = [(label, pos) for label, pos, _ in first if label]
+    assert len(named) == 1 and named[0][0] == "line"
+    assert np.allclose(named[0][1], (2.0, 1.0, lift), atol=1e-5)  # the newest end
+    assert np.allclose(first[0][2], PATH_RGBA[0])
+    assert len(second) == 3  # the other world's own, once it is highlighted
+    assert not hidden
+
+
+def test_framing_takes_in_the_highlighted_worlds_path(gl_context, make_recording):
+    def distance(far: float) -> float:
+        scene = ComposedScene(path_recording(make_recording, far), np.arange(2))
+        renderer = SceneRenderer(scene, offscreen_size=(64, 48))
+        renderer.close()
+        return renderer.camera.distance
+
+    assert distance(20.0) > distance(1.0) + 10
