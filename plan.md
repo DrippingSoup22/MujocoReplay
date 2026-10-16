@@ -760,4 +760,4 @@ built, is outside the repository, as the rules ask.
 | R14 — A camera that follows | Built (2026-10-10); merged into `main`; the user's check pending |
 | R15 — The floor under every world | Built (2026-10-10); merged into `main`; the user's check pending |
 | R16 — Model files | Built (2026-10-10); merged into `main`; the user's check pending |
-| R17 — Paths | Built (2026-10-16); Centipede's first recordings with paths, and the user's check, pending |
+| R17 — Paths | Built (2026-10-16); merged into `main`; Centipede's first recordings with paths, and the user's check, pending |
