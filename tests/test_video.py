@@ -90,3 +90,26 @@ def test_the_command_writes_a_video_of_a_model_file(
 
     assert status == 0
     assert frames_in(out)[0].shape[2] == 3  # one still frame, as long as it lasts
+
+
+def test_the_command_writes_a_gif_small_and_at_15_frames_a_second(
+    gl_context, saved, make_recording, tmp_path
+):
+    from mujoco_replay.recording import write_recording
+
+    run, out = tmp_path / "run.npz", tmp_path / "run.gif"
+    write_recording(run, make_recording(frames=3, worlds=2))
+
+    status = cli.main(["render", str(run), "--out", str(out), "--speed", "0.2"])
+
+    assert status == 0
+    from PIL import Image
+
+    with Image.open(out) as gif:
+        assert gif.size == (640, 360) and gif.info["loop"] == 0
+        shown = []
+        for index in range(gif.n_frames):
+            gif.seek(index)
+            shown.append(gif.info["duration"])
+    # 9 frames at 15 a second, each recorded frame's 3 alike merged into one
+    assert shown == [200, 200, 200]

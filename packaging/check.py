@@ -6,7 +6,8 @@
 run the program on a recording of their own, an orange box in three worlds:
 
 - ``MujocoReplay --help`` prints the command's help, and ``MujocoReplay
-  render`` writes a video whose every frame shows the box; the program has no
+  render`` writes a video, and a GIF, whose every frame shows the box, which
+  shows that the program carries Pillow, as the window's GIFs need; it has no
   console window, but what it prints reaches a caller that takes its output;
 - on Windows, ``MujocoReplay`` is a windowed program and carries the icon;
   started as a double-click starts it, it opens its window on the recording
@@ -90,6 +91,7 @@ def main(arguments: list[str] | None = None) -> int:
                 raise CheckFailed(f"{program} is missing")
             check_help(program, folder)
             check_render(program, recording, folder)
+            check_gif(program, recording, folder)
             if sys.platform == "win32":
                 shots = Shots(options.screenshots, options.print_screenshots)
                 desktop = Desktop()
@@ -145,6 +147,27 @@ def check_render(program: Path, recording: Path, folder: Path) -> None:
         frame = shown.index(min(shown))
         raise CheckFailed(f"render: frame {frame} shows {min(shown)} pixels of the box")
     say(f"render: {len(shown)} frames, each with {min(shown)}+ pixels of the box")
+
+
+def check_gif(program: Path, recording: Path, folder: Path) -> None:
+    """``render`` into a GIF: Pillow, which the window records GIFs with, is in
+    the program, and every frame shows the box."""
+    from PIL import Image, ImageSequence
+
+    gif = folder / "check.gif"
+    status, printed = run([program, "render", recording, "--out", gif], folder)
+    if status or not gif.is_file():
+        raise CheckFailed(f"{program.name} render to a GIF: status {status}\n{printed}")
+    with Image.open(gif) as image:
+        shown = [
+            box_pixels(np.asarray(frame.convert("RGB")))
+            for frame in ImageSequence.Iterator(image)
+        ]
+        size = image.size
+    if min(shown) < FRAME_PIXELS:
+        frame = shown.index(min(shown))
+        raise CheckFailed(f"gif: frame {frame} shows {min(shown)} pixels of the box")
+    say(f"gif: {len(shown)} frames of {size[0]} by {size[1]}, each with the box")
 
 
 def check_program(program: Path, desktop) -> None:

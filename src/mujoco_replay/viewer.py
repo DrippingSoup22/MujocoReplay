@@ -14,6 +14,7 @@ next to nothing. GLFW opens the window and delivers the input; only the
 import contextlib
 import math
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -21,13 +22,14 @@ import time
 import warnings
 from collections import deque
 from dataclasses import fields, replace
+from datetime import datetime
 from pathlib import Path
 
 import glfw
 import mujoco
 import numpy as np
 
-from mujoco_replay import icon, ui
+from mujoco_replay import gif, icon, ui
 from mujoco_replay.cli import PICK_FILES
 from mujoco_replay.playback import DEFAULT_SECONDS_PER_FRAME, Playback
 from mujoco_replay.recording import (
@@ -42,6 +44,7 @@ from mujoco_replay.settings import (
     GHOST_STRENGTHS,
     RESOLUTIONS,
     Settings,
+    downloads_folder,
     save_settings,
     user_folder,
 )
@@ -139,6 +142,7 @@ HELP = [
     "T: look from above",
     "C: centre on the highlight",
     "F: follow the highlight",
+    "Ctrl+R: record a GIF, or stop",
     "Left drag: rotate",
     "Shift and left drag: turn",
     "Right drag: pan",
@@ -282,6 +286,8 @@ class Viewer:
         self.help = False
         self.asking = False  # whether the question before quitting is shown
         self._picker: FilePicker | None = None
+        self._gif: gif.GifRecorder | None = None  # recording, or writing its file
+        self._gif_next = 0.0  # when the next frame of it is due
         self._dropped: list[str] = []
         self._passed: list[str] = []  # events passed, not yet flashed
         self._flash, self._flash_until = "", 0.0
@@ -336,8 +342,12 @@ class Viewer:
                 self._flash, self._dirty = "", True
             if self._message and now >= self._message_until:
                 self._message, self._dirty = "", True
+            self._keep_recording(now)
             if self._dirty:
                 self._draw()
+        if self._gif is not None:  # its file is written before the window goes
+            self._gif.stop(time.monotonic())
+            self._gif.wait()
         self.renderer.close()
         if self._picker is not None:
             self._picker.close()
@@ -440,6 +450,7 @@ class Viewer:
         tabs = self.settings.panel and self.playback is not None
         self._top = ui.TabBar.height(line) if tabs else 0
         loaded = self.playback is not None and self.scene.recording is not self._empty
+        recording = self._gif is not None and self._gif.recording
         # While another tab's file is composed, the scene shows the one before.
         if loaded and self.scene.recording is self.playback.recording:
             if self.scene.frame_index != self.playback.frame_index:
@@ -461,12 +472,14 @@ class Viewer:
             corner=rate,
             left=self._left,
             inset=self._inset,
-            message=self._message,
+            message="" if recording else self._message,  # kept out of the GIF
             hint="" if loaded else "Open recordings or models (O), or drop them here",
             fresh=first,  # a frame to time, even when only the overlay changed
             top=self._top,
         )
         context = self.renderer.context  # made again if the floor grew
+        if recording:
+            self._record_frame(width, height)
         hover = self._pixels(*self._cursor)
         self.panel.draw(self._layout(), height, context, hover, self.settings.panel)
         if self.asking:  # over everything else, which it dims
@@ -570,6 +583,10 @@ class Viewer:
                     )
                 ),
             ]
+        if playback is not None or self._gif is not None:
+            rows.append(
+                ui.Toggles(((self._gif_label(), "record gif", self._gif is not None),))
+            )
         mode = settings.mode
         resolution = f"{graphics.resolution}%"
         rows += [
@@ -667,6 +684,7 @@ class Viewer:
             "top view": self.renderer.look_from_above,
             "follow": self._toggle_follow,
             "centre": self._centre,
+            "record gif": self._toggle_gif,
             "quality": lambda: self._change(self.settings.with_mode("quality")),
             "performance": lambda: self._change(self.settings.with_mode("performance")),
             "shadows": graphics("shadows"),
@@ -1010,6 +1028,76 @@ class Viewer:
             left = f" (and {more} more file{'s' * (more > 1)} left out)" if more else ""
             self._say(problems[0] + left)
 
+    def _toggle_gif(self) -> None:
+        """Start recording a GIF of the scene into the Downloads folder, or stop.
+
+        A GIF holds what the scene shows, overlay and all, but not the panel,
+        the tabs, or the messages, which are written over it after each frame
+        is taken; the file is named after the shown tab and the time.
+        """
+        now = time.monotonic()
+        if self._gif is not None and self._gif.recording:
+            self._gif.stop(now)
+            self._say("Saving the GIF ...")
+            return
+        if self._gif is not None:
+            self._say("The last GIF is still being saved")
+            return
+        if self.playback is None:
+            self._say("Open a recording or a model to record a GIF of it")
+            return
+        name = _file_name(self._names[self._shown_tab()])
+        stamp = datetime.now().strftime("%Y-%m-%d %H-%M-%S")
+        path = downloads_folder() / f"{name} {stamp}.gif"
+        try:
+            self._gif = gif.GifRecorder(path, now)
+        except ImportError:
+            self._say('Recording a GIF needs Pillow: pip install -e ".[video]"')
+            return
+        self._gif_next = now
+
+    def _keep_recording(self, now: float) -> None:
+        """Ask for the GIF's next frame when it is due, end a recording that
+        reached its longest, and tell where the GIF went once it is written."""
+        recorder = self._gif
+        if recorder is None:
+            return
+        if recorder.recording and recorder.seconds(now) >= gif.RECORD_SECONDS:
+            recorder.stop(now)
+            self._say(f"A GIF lasts at most {gif.RECORD_SECONDS} s: saving it ...")
+        if recorder.recording and now >= self._gif_next:
+            self._dirty = True
+        if recorder.finished:
+            self._gif = None
+            if recorder.error:
+                self._say(f"The GIF could not be saved: {recorder.error}")
+            else:
+                self._say(f"GIF saved: {recorder.path}")
+            self._dirty = True
+
+    def _record_frame(self, width: int, height: int) -> None:
+        """Give the GIF the scene just drawn, when its next frame is due, then
+        write over it how long the recording runs, and any message."""
+        now = time.monotonic()
+        left, top = self._left, self._top
+        if now >= self._gif_next and width - left > 1 and height - top > 1:
+            scene = self.renderer.read_pixels(width - left, height - top, left, 0)
+            self._gif.add(scene, now)
+            self._gif_next = now + 1 / gif.RECORD_FPS
+        seconds = self._gif.seconds(now)
+        text = f"Recording a GIF: {seconds:.0f} s (Ctrl+R stops)"
+        if self._message:
+            text += f"  |  {self._message}"
+        self.renderer.notice(width, height, text, self._inset, self._top)
+
+    def _gif_label(self) -> str:
+        """The GIF button's words: what pressing it does, or what it is doing."""
+        if self._gif is None:
+            return "Record GIF"
+        if self._gif.recording:
+            return f"Stop GIF ({self._gif.seconds(time.monotonic()):.0f} s)"
+        return "Saving GIF ..."
+
     def _say(self, message: str) -> None:
         self._message = message
         self._message_until = time.monotonic() + MESSAGE_SECONDS
@@ -1044,6 +1132,8 @@ class Viewer:
             waits.append(self._message_until - now)
         if self._picker is not None:
             waits.append(0.1)
+        if self._gif is not None:  # its next frame, or the end of its writing
+            waits.append(self._gif_next - now if self._gif.recording else 0.1)
         return max(0.0, min(waits))
 
     def _pixels(self, x: float, y: float) -> tuple[float, float]:
@@ -1095,6 +1185,8 @@ class Viewer:
             name = "previous file" if self._shift else "next file"
         elif control and glfw.get_key_name(key, scancode) in ("w", "W"):
             name = "close file"
+        elif control and glfw.get_key_name(key, scancode) in ("r", "R"):
+            name = "record gif"
         else:
             name = KEYS.get(key)
         if name is not None:
@@ -1246,6 +1338,11 @@ def _placement(
             size = (int(width * SCREEN_SHARE), int(height * SCREEN_SHARE))
             return size, (left + (width - size[0]) // 2, top + (height - size[1]) // 2)
     return size or (1280, 720), None
+
+
+def _file_name(name: str) -> str:
+    """A tab's name as part of a file name on every system."""
+    return re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name).strip(" .") or "MujocoReplay"
 
 
 def _empty_world() -> Recording:

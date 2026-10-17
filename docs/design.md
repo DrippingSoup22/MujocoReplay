@@ -47,7 +47,8 @@ blob anyway.
 | `settings.py` | `Settings` and `Graphics`: the Quality and Performance presets, the ghosts' strengths, and keeping the settings in the user's settings folder | NumPy, through `selection` |
 | `ui.py` | `Panel`: the side panel's rows, their layout, drawing, and clicks; `TabBar` and `tab_names`: the tabs of the open files; the ASCII text MuJoCo's fonts draw | MuJoCo |
 | `viewer.py` | The application: the window, the empty world, opening files in tabs, the panel's actions, the keys and the mouse, the main loop that draws only on change | GLFW, MuJoCo, NumPy; imported only by the `view` command |
-| `video.py` | Offscreen rendering of a playlist to an MP4 | `imageio`, `imageio-ffmpeg`, MuJoCo, NumPy; imported only by the `render` command, so a missing `video` extra fails before any work |
+| `video.py` | Offscreen rendering of a playlist to an MP4 or a GIF | `imageio`, `imageio-ffmpeg`, MuJoCo, NumPy; imported only by the `render` command, so a missing `video` extra fails before any work |
+| `gif.py` | GIFs: `GifRecorder`, what the window shows, recorded, and `GifWriter`, a video's frames, written | NumPy; Pillow when a GIF is first made, so the window runs without it |
 | `cli.py`, `__main__.py` | The `mujoco-replay` command and `python -m mujoco_replay`, and the file picker's process (`--pick-files`) | argparse, NumPy; the window and video modules inside the commands, tkinter inside the picker |
 | `launcher.py` | The `MujocoReplay` program: the command without a console window, its failures shown in a message box | The standard library; the command inside `main` |
 | `icon.py` | The application's icon: pixel art kept as text, scaled by whole pixels, and written as a Windows icon file by `python -m mujoco_replay.icon` | NumPy |
@@ -347,6 +348,7 @@ that frame (`Playback.seek`).
 | T | Look straight down, from above |
 | C | Centre the camera on the highlighted world |
 | F | Follow the highlighted world, on at first, or stop; remembered |
+| Ctrl+R | Record a GIF of the scene, or stop and save it in the Downloads folder |
 | H | Show or hide the overlay (remembered) |
 | I | Show or hide the setup information |
 | O | Open recordings or model files with the system's file picker |
@@ -811,6 +813,43 @@ which the H.264 encoder needs, and the font scale follows the height (150 at
 720 rows, 200 at 1,080). A progress line counts the video frames on the error
 stream. With the software renderer of the development container, two 40-frame
 files at 640 × 360 and 0.1 s per frame took 2 min 18 s to export.
+
+## GIFs
+
+The user asked on 2026-10-17 to record GIFs and keep them. In the window,
+Ctrl+R, or the panel's Record GIF under View, records what the scene shows,
+with its overlay and the camera as the user moves it, but not the panel, the
+tabs, or the messages: after each frame is drawn, the scene's rectangle of the
+window is read (`mjr_readPixels`, 7 ms at 1330 by 860 here), and the line
+saying the recording runs, with any message, is written over the window
+after that, so that it shows on the screen alone. While recording, the window
+draws at least 15 times a second, so that a paused scene, which is otherwise
+not drawn again, is caught too; a slower drawing gives fewer frames, never a
+faster GIF, since each frame lasts until the next was shown (Mesa's software
+renderer drew Quality at 3 to 4 frames a second here, and a light window at
+15). Ctrl+R again, or 60 s, ends it, and the GIF is saved in the Downloads
+folder, or the home folder if there is none, named after the shown tab and
+the time; the message names the file. The panel's button reads Stop GIF with
+the seconds recorded, then Saving GIF.
+
+`gif.GifRecorder` does the work beside the window: a thread of its own shrinks
+each frame to at most 640 pixels wide, every frame to the first one's size,
+and reduces it to 256 colours of its own with Pillow's fast octree, which
+drew the scene as well as median cut in a third of the size and a seventh of
+the time (3.5 ms a frame); then it writes the file, so that the window keeps
+drawing. A GIF counts delays in hundredths of a second, so the delays round
+the running time, not each delay, and none is shorter than 20 ms, which
+browsers stretch to 100. Pillow merges a frame equal to the one before into
+it, so a still scene costs nothing: 10 s of a walking centipede at 640 by 360
+took 6 MB, and 60 s take about 200 MB of memory while recording. The window
+quits only once a GIF being recorded is written.
+
+`render` writes a GIF when `--out` ends in `.gif` (`gif.GifWriter`, which
+takes the frames as the MP4 writer does), at 640 by 360 and 15 frames a
+second unless told otherwise, since a GIF weighs far more per frame than an
+MP4. Pillow comes with the `video` extra, which now names it, and with the
+executable, whose check writes a GIF through the program; without it, the
+window says what to install.
 
 ## Command line
 

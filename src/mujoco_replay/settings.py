@@ -96,6 +96,13 @@ def user_folder(kind: str) -> Path:
     return Path(os.environ.get(variable) or default) / "mujoco-replay"
 
 
+def downloads_folder() -> Path:
+    """Where the window saves what it makes, such as GIFs: the user's
+    Downloads folder, or the home folder when there is none."""
+    downloads = Path.home() / "Downloads"
+    return downloads if downloads.is_dir() else Path.home()
+
+
 def settings_path() -> Path:
     return user_folder("settings") / "settings.json"
 

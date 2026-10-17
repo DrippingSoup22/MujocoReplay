@@ -1,4 +1,4 @@
-"""Writing a playlist to an MP4 video, drawn offscreen exactly as in the window.
+"""Writing a playlist to an MP4 video or a GIF, drawn offscreen as in the window.
 
 Playback runs on a clock of video frames instead of the wall clock: video frame
 ``i`` shows the scene at ``i / fps`` seconds, so each recorded frame lasts
@@ -7,7 +7,8 @@ pixels repeated, and redrawn only when the event flash appears or goes. The
 frames go to ``imageio`` with the ``ffmpeg`` plugin of ``imageio-ffmpeg``,
 which bundles its own encoder; both come with the ``video`` extra, and only
 the ``render`` command imports this module, so importing them here makes a
-missing extra fail before any work.
+missing extra fail before any work. A path ending in ``.gif`` takes the frames
+into a GIF instead (``gif.GifWriter``), with Pillow, which comes with the extra.
 """
 
 import math
@@ -19,6 +20,7 @@ import imageio.v2 as imageio
 import imageio_ffmpeg  # noqa: F401  (the encoder behind imageio's FFMPEG format)
 import numpy as np
 
+from mujoco_replay.gif import GifWriter
 from mujoco_replay.playback import DEFAULT_SECONDS_PER_FRAME, Playback
 from mujoco_replay.recording import Recording
 from mujoco_replay.render import SceneRenderer, offscreen_context
@@ -40,7 +42,8 @@ def export(
     cache: Path | None = None,
     graphics: Graphics = QUALITY,
 ) -> int:
-    """Write the playlist to ``path`` as an MP4; return the video frames written.
+    """Write the playlist to ``path`` as an MP4, or a GIF for a path ending in
+    ``.gif``; return the video frames written.
 
     ``worlds`` holds, per recording, the indices of the worlds to draw, best
     first. The size is rounded down to even numbers, as the encoder needs.
@@ -65,11 +68,14 @@ def export(
         renderer = SceneRenderer(scene, (width, height), _font_scale(height), graphics)
         renderer.set_follow(True)  # the best world may walk out of the picture
         cleanup.callback(renderer.close)
-        writer = cleanup.enter_context(
-            imageio.get_writer(
-                path, format="FFMPEG", fps=fps, quality=8, macro_block_size=2
+        if Path(path).suffix.lower() == ".gif":
+            writer = cleanup.enter_context(GifWriter(path, fps))
+        else:
+            writer = cleanup.enter_context(
+                imageio.get_writer(
+                    path, format="FFMPEG", fps=fps, quality=8, macro_block_size=2
+                )
             )
-        )
         for index in range(total):
             now = index / fps
             labels = playback.advance(now)

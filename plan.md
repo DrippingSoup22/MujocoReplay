@@ -1,6 +1,6 @@
 # Development plan
 
-This plan builds MujocoReplay in seventeen stages; the user asked for the sixth
+This plan builds MujocoReplay in eighteen stages; the user asked for the sixth
 on 2026-10-07, once the first five were built, for the seventh, a full review,
 once the sixth was, for the eighth, a program to start it from, once the
 seventh was, and for the ninth, any world on its own and new defaults, on
@@ -9,8 +9,8 @@ the user's behalf the same day, and the user asked for the eleventh, tabs,
 the twelfth, an icon with Loop and Play next, and the thirteenth, an
 executable, on 2026-10-09, and the fourteenth, a camera that follows, the
 fifteenth, the floor under every world, and the sixteenth, model files, on
-2026-10-10, and Centipede asked for the seventeenth, paths, through the user
-on 2026-10-16. It is paired with Stage 7 of the
+2026-10-10; Centipede asked for the seventeenth, paths, through the user on
+2026-10-16, and the user for the eighteenth, GIFs, on 2026-10-17. It is paired with Stage 7 of the
 sibling `Centipede` project (`../Centipede/plan.md`), which records the files
 this tool replays. The format is fixed in
 [docs/recording-format.md](docs/recording-format.md) and the design in
@@ -740,6 +740,35 @@ range ring. Adding 199 segments takes 1.4 ms per frame. 154 tests pass (50
 draw and skip without OpenGL). Centipede's reply note, with the keys as
 built, is outside the repository, as the rules ask.
 
+### R18 — GIFs
+
+Asked by the user on 2026-10-17: to record GIFs in the application and keep
+them.
+
+**Builds:** in the window, Ctrl+R, or the panel's Record GIF, records what
+the scene shows, overlay and camera included but not the panel, the tabs, or
+the messages, at up to 15 frames a second for up to 60 s, and saves the GIF
+in the Downloads folder, named after the tab and the time; `render` writes a
+GIF for an output ending in `.gif`; the executable's check writes one through
+the program. docs/design.md describes it.
+
+**Done when:** tests show delays that keep the running time and none too
+short, a video's frames written as a looping GIF, a recording shrunk to its
+width, kept at its first size, merged where it stands still, and timed as
+shown, a GIF that cannot be written or has no frame telling why, Ctrl+R in
+the window saving the scene beside the panel into the Downloads folder, the
+command writing a small GIF at 15 frames a second, and the Downloads folder
+or else the home folder chosen; in the window, a recording made while the
+camera moves.
+
+**Result (2026-10-17):** built; the user's check pending. Under the virtual
+display, Ctrl+R recorded the walking stand-in while the camera was dragged:
+the GIF in Downloads shows the scene, overlay and timeline, without the
+panel or the recording's own line, and its time matches the 10 s recorded.
+Mesa's software renderer draws Quality at about 3 frames a second here, so
+that recording held 33 frames; a light window held 15 a second. 10 s at 640
+by 360 weigh about 6 MB. 161 tests pass (52 draw and skip without OpenGL).
+
 ## Status
 
 | Stage | Status |
@@ -761,3 +790,4 @@ built, is outside the repository, as the rules ask.
 | R15 — The floor under every world | Built (2026-10-10); merged into `main`; the user's check pending |
 | R16 — Model files | Built (2026-10-10); merged into `main`; the user's check pending |
 | R17 — Paths | Built (2026-10-16); merged into `main`; Centipede's first recordings with paths, and the user's check, pending |
+| R18 — GIFs | Built (2026-10-17); the user's check pending |

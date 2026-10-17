@@ -50,7 +50,12 @@ def main(arguments: list[str] | None = None) -> int:
             settings = replace(settings, worlds=options.worlds)
         save_settings(settings)  # remembered, as changes in the panel are
     count = options.worlds or settings.worlds
+    small = options.command == "render" and options.out.lower().endswith(".gif")
+    if options.command == "render" and options.fps is None:
+        options.fps = 15 if small else 30  # a GIF weighs much more per frame
     size = (options.width or 1280, options.height or 720)
+    if small:
+        size = (options.width or 640, options.height or 360)
     if options.command == "view" and not (options.width or options.height):
         size = None  # the window takes most of the screen
     try:
@@ -193,8 +198,12 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("quality", "performance"),
         help="the graphics preset; quality unless given",
     )
-    render.add_argument("--out", required=True, help="the MP4 file to write")
-    render.add_argument("--fps", type=_positive(int), default=30)
+    render.add_argument(
+        "--out", required=True, help="the MP4 file to write, or a GIF: name.gif"
+    )
+    render.add_argument(
+        "--fps", type=_positive(int), help="frames per second: 30, or 15 for a GIF"
+    )
     return parser
 
 

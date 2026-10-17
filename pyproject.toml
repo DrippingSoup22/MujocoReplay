@@ -18,10 +18,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Writing MP4 files; imageio-ffmpeg bundles its own encoder.
+# Writing MP4 files, with the encoder imageio-ffmpeg bundles, and GIFs, with
+# Pillow, which the window also uses to record GIFs.
 video = [
     "imageio",
     "imageio-ffmpeg",
+    "pillow",
 ]
 dev = [
     "pytest",

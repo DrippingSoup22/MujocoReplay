@@ -372,13 +372,32 @@ class SceneRenderer:
         """The OpenGL resources, for drawing more on top, such as the panel."""
         return self._context
 
-    def read_pixels(self, width: int, height: int) -> np.ndarray:
-        """The last drawing as an RGB image, ``(height, width, 3)``, top row first."""
+    def read_pixels(
+        self, width: int, height: int, left: int = 0, bottom: int = 0
+    ) -> np.ndarray:
+        """The last drawing as an RGB image, ``(height, width, 3)``, top row first.
+
+        ``left`` and ``bottom`` place the rectangle read, in pixels from the
+        bottom left: in a window, the scene beside the panel and below the tabs.
+        """
         rgb = np.empty((height, width, 3), dtype=np.uint8)
         mujoco.mjr_readPixels(
-            rgb, None, mujoco.MjrRect(0, 0, width, height), self._context
+            rgb, None, mujoco.MjrRect(left, bottom, width, height), self._context
         )
         return np.flipud(rgb)
+
+    def notice(self, width: int, height: int, text: str, inset: int = 0, top: int = 0):
+        """Write ``text`` at the top of the scene, as ``render``'s message is,
+        on a drawing already made, such as one just read for a GIF."""
+        area = mujoco.MjrRect(inset, 0, max(1, width - inset), max(1, height - top))
+        mujoco.mjr_overlay(
+            mujoco.mjtFont.mjFONT_NORMAL,
+            mujoco.mjtGridPos.mjGRID_TOP,
+            area,
+            ascii_text(text),
+            "",
+            self._context,
+        )
 
     def frame_all(self) -> None:
         """Look at every drawn world and its markers from a raised angle.

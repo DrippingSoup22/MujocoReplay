@@ -1,12 +1,14 @@
 """Tests for the settings: the presets, the mode, and keeping them between runs."""
 
 import json
+from pathlib import Path
 
 from mujoco_replay.settings import (
     PERFORMANCE,
     QUALITY,
     SETTINGS_VERSION,
     Settings,
+    downloads_folder,
     load_settings,
     save_settings,
 )
@@ -72,3 +74,12 @@ def test_a_file_saved_under_the_first_defaults_takes_the_new_ghosts_and_resoluti
         True,
         True,
     )
+
+
+def test_what_the_window_makes_goes_to_downloads_or_else_home(tmp_path, monkeypatch):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    home = downloads_folder()
+    (tmp_path / "Downloads").mkdir()
+
+    assert home == tmp_path
+    assert downloads_folder() == tmp_path / "Downloads"

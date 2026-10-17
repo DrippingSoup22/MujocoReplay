@@ -3,6 +3,7 @@
 import ctypes
 import subprocess
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -10,6 +11,11 @@ import glfw
 import mujoco
 import numpy as np
 import pytest
+
+try:
+    from PIL import Image
+except ImportError:  # the tests that need it skip
+    Image = None
 
 from mujoco_replay import cli, ui
 from mujoco_replay.recording import Recording, write_recording
@@ -253,6 +259,35 @@ def test_highlighting_another_world_brings_the_camera_to_it(window, make_recordi
     assert np.allclose(camera.lookat, scene.world_centre(0))
     assert (camera.distance, camera.azimuth, camera.elevation) == angle
     assert viewer.renderer.follow  # following still, as before the click
+    viewer.renderer.close()
+
+
+def test_ctrl_r_records_the_scene_into_a_gif_in_downloads(
+    window, make_recording, saved, tmp_path
+):
+    pytest.importorskip("PIL", reason="Pillow, of the video extra")
+    (tmp_path / "Downloads").mkdir()
+    viewer = Viewer(window, Settings(cache=False), 0.3)
+    viewer.load([make_recording(frames=4, worlds=2)], paths=["runs/cycle_7.npz"])
+    control_r = (glfw.KEY_R, glfw.get_key_scancode(glfw.KEY_R), glfw.PRESS)
+
+    viewer._on_key(window, *control_r, glfw.MOD_CONTROL)
+    viewer._draw()  # the first frame, at once
+    viewer.playback.seek(3)
+    viewer._gif_next = 0.0  # the next one due
+    viewer._draw()
+    recorder = viewer._gif
+    viewer._on_key(window, *control_r, glfw.MOD_CONTROL)
+    recorder.wait()
+    viewer._keep_recording(time.monotonic())
+
+    saved_gifs = list((tmp_path / "Downloads").glob("cycle_7 *.gif"))
+    assert len(saved_gifs) == 1 and viewer._gif is None
+    assert viewer._message == f"GIF saved: {saved_gifs[0]}"
+    width, height = glfw.get_framebuffer_size(window)
+    with Image.open(saved_gifs[0]) as gif:  # the scene beside the panel alone
+        assert gif.n_frames == 2
+        assert gif.size == (width - viewer._left, height - viewer._top)
     viewer.renderer.close()
 
 

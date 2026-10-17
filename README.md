@@ -23,7 +23,9 @@ never slows the training down.
   frame, such as the start and the end of a training run.
 - **Your pace.** Pause, step, slow down to seconds per frame, loop a file, or
   let it go on with the next tab by itself.
-- **Videos.** The same scene, written to an MP4 file.
+- **GIFs and videos.** Press **Ctrl+R** to record what the window shows as a
+  GIF, saved in your Downloads folder; or write a file to an MP4 or a GIF from
+  the command line.
 
 <p align="center">
   <img src="docs/images/replay.gif" width="600" alt="Sixteen centipedes walking toward a target; the best one in colour, the others as ghosts">
@@ -56,6 +58,7 @@ clone of this repository:
 python -m pip install -e ".[video]"
 mujoco-replay                                   # the window
 mujoco-replay render run.npz --out replay.mp4   # a video
+mujoco-replay render run.npz --out replay.gif   # a GIF
 ```
 
 ## Open recordings and models
@@ -85,6 +88,7 @@ before any training.
 | Drag, right-drag, wheel | Rotate, pan, zoom |
 | **F** | Follow the highlighted world (on at first), or stop |
 | **V** | Reset the view |
+| **Ctrl+R** | Record a GIF of the scene, or stop: it goes to your Downloads folder |
 | **L** | Loop the file |
 | **Tab** | Hide the panel |
 | **F1** | Every key |
@@ -113,6 +117,10 @@ run's settings are optional; [docs/recording-format.md](docs/recording-format.md
 lists them all.
 
 ## Status
+
+**Stage R18, GIFs (2026-10-17):** **Ctrl+R**, or the panel's Record GIF,
+records what the scene shows into a GIF in your Downloads folder, and
+`render` writes GIFs too.
 
 **Stage R17, paths (2026-10-16):** a recording can carry lines that change
 from frame to frame, such as the head's line in Centipede's cooperators study,
@@ -215,7 +223,7 @@ MujocoReplay/
 ├─ .github/workflows/   The Windows executable, built and checked by GitHub
 ├─ docs/                Format and design documents, and the pictures above
 ├─ packaging/           PyInstaller's recipe, and the check of a built folder
-├─ src/mujoco_replay/   The package: format, selection, scene, playback, renderer, settings, panel, viewer, video, command, program, icon
+├─ src/mujoco_replay/   The package: format, selection, scene, playback, renderer, settings, panel, viewer, video, GIFs, command, program, icon
 ├─ tests/               Automated tests, one file per module
 └─ archive/             Superseded material; local only
 ```
