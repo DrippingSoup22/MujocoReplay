@@ -794,4 +794,4 @@ Windows, and the tests' folder fixture now redirects it too.
 | R15 — The floor under every world | Built (2026-10-10); merged into `main`; the user's check pending |
 | R16 — Model files | Built (2026-10-10); merged into `main`; the user's check pending |
 | R17 — Paths | Built (2026-10-16); merged into `main`; Centipede's first recordings with paths, and the user's check, pending |
-| R18 — GIFs | Built (2026-10-17); the user's check pending |
+| R18 — GIFs | Built (2026-10-17); merged into `main`; the user's check pending |
