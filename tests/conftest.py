@@ -77,10 +77,12 @@ def make_recording():
 
 @pytest.fixture
 def saved(tmp_path, monkeypatch):
-    """The settings and cache folders, in the test's own folder, on every system."""
+    """The settings, cache, and home folders, in the test's own folder, on every
+    system."""
     for variable in ("XDG_CONFIG_HOME", "XDG_CACHE_HOME", "APPDATA", "LOCALAPPDATA"):
         monkeypatch.setenv(variable, str(tmp_path))
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))  # the home folder on Windows
 
 
 @pytest.fixture(scope="session")
