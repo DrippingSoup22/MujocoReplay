@@ -768,6 +768,10 @@ panel or the recording's own line, and its time matches the 10 s recorded.
 Mesa's software renderer draws Quality at about 3 frames a second here, so
 that recording held 33 frames; a light window held 15 a second. 10 s at 640
 by 360 weigh about 6 MB. 161 tests pass (52 draw and skip without OpenGL).
+On GitHub's Windows machine the executable wrote a GIF of 30 frames, each
+showing the check's box; the GIF test first saved into that machine's own
+Downloads folder, since Python takes the home folder from `USERPROFILE` on
+Windows, and the tests' folder fixture now redirects it too.
 
 ## Status
 
