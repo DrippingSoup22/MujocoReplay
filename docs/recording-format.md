@@ -37,7 +37,7 @@ Required keys:
 | Key | Type and shape | Meaning |
 | --- | --- | --- |
 | `format_version` | int, scalar | `2` for a file with a ring marker or a marker radius that changes per frame, `1` otherwise; see the rules below |
-| `model_xml` | str, scalar | The complete model as one MJCF document, with includes already resolved. `mujoco.MjSpec.from_file(path).to_xml()` produces exactly this (verified with MuJoCo 3.12.0: includes and inline meshes come out in one document) |
+| `model_xml` | str, scalar | The complete model as one MJCF document, with includes already resolved. `mujoco.MjSpec.from_file(path).to_xml()` produces exactly this (verified with MuJoCo 3.12.0 and 3.16.0: includes and inline meshes come out in one document) |
 | `frame_seconds` | float, scalar | Simulated time between consecutive frames, in seconds |
 | `qpos` | float32, `(T, K, nq)` | Every world's position coordinates at every frame, in the compiled model's `qpos` order |
 

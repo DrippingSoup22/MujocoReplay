@@ -67,7 +67,8 @@ element by element, then compiled into the `MjModel` that simulation and
 drawing use. The steps below were first tried with MuJoCo 3.12.0 on
 2026-10-07 against Centipede's model (69 position coordinates, one root body
 `segment_00` holding the whole centipede, 64 shapes, 55 actuators, a floor and
-one light in the world body). Stage R2 built them and verified them against
+one light in the world body), and hold with MuJoCo 3.16.0 (2026-10-19).
+Stage R2 built them and verified them against
 the test model of `tests/conftest.py` and a centipede-like chain written for
 the purpose (65 position coordinates, 52 shapes, a mesh, a skybox, and a
 textured floor): every body of 32 copies matched the original model posed with
@@ -364,8 +365,8 @@ that Caps Lock does not turn B into Shift+B. GLFW sends no character while
 Ctrl is held, so Ctrl+W is read from the key's name in the keyboard's layout
 (`glfw.get_key_name`), and Ctrl with Alt, which is AltGr on Windows and types
 characters, does not count as Ctrl. Mouse: left drag rotates, right drag pans, middle
-drag zooms, through `mujoco.mjv_moveCamera` (in MuJoCo 3.12 it takes no scene
-argument); Shift with the left drag turns around the vertical only, and Shift
+drag zooms, through `mujoco.mjv_moveCamera` (in MuJoCo 3.12 and 3.16 it takes
+no scene argument); Shift with the left drag turns around the vertical only, and Shift
 with the right drag pans in the horizontal plane. The wheel zooms in when
 turned away from the user, as in most programs (MuJoCo's own viewer does the
 opposite). The camera stays at least 2° above the horizon, so it cannot slip
@@ -1017,11 +1018,21 @@ Windows did; only the Windows folder is published.
 
 ## Dependencies
 
-`mujoco==3.12.0` (the version the composition was verified with), `numpy`,
-and `glfw`, which MuJoCo also brings but the window imports directly.
-Optional `video`: `imageio`, `imageio-ffmpeg`. Development: `pytest`, `ruff`.
-The executable: `pyinstaller` 6.22.3, for the build only.
-Python 3.11 to 3.14: MuJoCo 3.12.0 has no wheels for newer versions.
+`mujoco==3.16.0` (the version the composition was verified with, which
+Centipede pins too), `numpy`, and `glfw`, which MuJoCo also brings but the
+window imports directly. Optional `video`: `imageio`, `imageio-ffmpeg`, and
+`pillow`. Development: `pytest`, `ruff`. The executable: `pyinstaller`
+6.22.3, for the build only. Python 3.11 to 3.15: MuJoCo 3.16.0 has no wheels
+for newer versions, and NumPy and Pillow have wheels for 3.15.
+
+The move from 3.12.0 to 3.16.0 (2026-10-19, asked by Centipede through the
+user, after Centipede moved) changed nothing in the code. MuJoCo 3.16
+compiles meshes in other frames (`mesh_quat`, `mesh_vert`, `geom_quat`, and
+`geom_aabb` of mesh geoms differ), which drawing from the bodies' poses does
+not see: the same scenes drawn offscreen under both versions were identical
+for Centipede's model, and differed in 0.07 % of the pixels for Unitree's Go2
+and next to none for Franka's Panda, from Menagerie. The composite cache keys
+on MuJoCo's version, so composites made under 3.12 are made again.
 
 ## Verification without a display
 

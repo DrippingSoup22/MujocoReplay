@@ -1,6 +1,6 @@
 # Development plan
 
-This plan builds MujocoReplay in eighteen stages; the user asked for the sixth
+This plan builds MujocoReplay in nineteen stages; the user asked for the sixth
 on 2026-10-07, once the first five were built, for the seventh, a full review,
 once the sixth was, for the eighth, a program to start it from, once the
 seventh was, and for the ninth, any world on its own and new defaults, on
@@ -10,7 +10,8 @@ the twelfth, an icon with Loop and Play next, and the thirteenth, an
 executable, on 2026-10-09, and the fourteenth, a camera that follows, the
 fifteenth, the floor under every world, and the sixteenth, model files, on
 2026-10-10; Centipede asked for the seventeenth, paths, through the user on
-2026-10-16, and the user for the eighteenth, GIFs, on 2026-10-17. It is paired with Stage 7 of the
+2026-10-16, and the user for the eighteenth, GIFs, on 2026-10-17; Centipede
+asked for the nineteenth, MuJoCo 3.16.0, through the user on 2026-10-19. It is paired with Stage 7 of the
 sibling `Centipede` project (`../Centipede/plan.md`), which records the files
 this tool replays. The format is fixed in
 [docs/recording-format.md](docs/recording-format.md) and the design in
@@ -773,6 +774,37 @@ showing the check's box; the GIF test first saved into that machine's own
 Downloads folder, since Python takes the home folder from `USERPROFILE` on
 Windows, and the tests' folder fixture now redirects it too.
 
+### R19 — MuJoCo 3.16.0
+
+Asked by Centipede through the user on 2026-10-19, in a handoff file:
+Centipede moved to MuJoCo 3.16.0 and MuJoCo Warp 3.16.0, and every
+environment holding both projects reported MujocoReplay's pin of 3.12.0 as a
+conflict.
+
+**Builds:** the pin at `mujoco==3.16.0`, Python 3.11 to 3.15 (3.16.0, NumPy,
+and Pillow have wheels for 3.15), and the documents that named 3.12.0 as the
+version verified. The handoff also reported three tests of the tab bar
+failing on the laptop under both versions; they assumed font scale 100,
+while a screen set to 125 % or 150 % gives 150, and a panel so wide in the
+tests' window that the tab bar showed the shown tab alone, as it is meant to
+in so little room. The tests now lay the window out at font scale 100
+whatever the screen.
+
+**Done when:** the tests pass under 3.16.0, with and without a display; the
+three tab tests pass with GLFW reporting a screen at 100, 150, and 200 %;
+offscreen drawings under 3.12.0 and 3.16.0 agree; the executable builds and
+passes its check with 3.16.0.
+
+**Result (2026-10-19):** done. Under 3.16.0, 161 tests pass (52 draw and skip
+without OpenGL), as under 3.12.0; with the screen reported at 150 %, the
+three tab tests failed as on the laptop before the change, and pass at
+every scale after it. Centipede's walking stand-in with its path, ring, and
+target drew the same pixels under both versions; Unitree's Go2 differed in
+0.07 % of the pixels and Franka's Panda in next to none, from 3.16's new
+mesh frames. `MjSpec.from_file(...).to_xml()` still brings includes and
+inline meshes into one document. Each of the laptop's environments clears
+the conflict once `pip install -e .` runs again in it, from this folder.
+
 ## Status
 
 | Stage | Status |
@@ -795,3 +827,4 @@ Windows, and the tests' folder fixture now redirects it too.
 | R16 — Model files | Built (2026-10-10); merged into `main`; the user's check pending |
 | R17 — Paths | Built (2026-10-16); merged into `main`; Centipede's first recordings with paths, and the user's check, pending |
 | R18 — GIFs | Built (2026-10-17); merged into `main`; the user's check pending |
+| R19 — MuJoCo 3.16.0 | Done (2026-10-19); the laptop's environments need `pip install -e .` again |

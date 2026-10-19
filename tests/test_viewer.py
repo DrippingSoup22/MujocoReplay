@@ -24,8 +24,11 @@ from mujoco_replay.viewer import APP_ID, FilePicker, Viewer, _name_for_the_taskb
 
 
 @pytest.fixture
-def window(opengl):
-    """A hidden window with a current OpenGL context."""
+def window(opengl, monkeypatch):
+    """A hidden window with a current OpenGL context, laid out at font scale 100
+    whatever the screen's scaling: at 150, a laptop set to 125 % or 150 % gave
+    a panel too wide for the tabs the tests expect beside it."""
+    monkeypatch.setattr("mujoco_replay.viewer._font_scale", lambda window: 100)
     glfw.init()
     glfw.window_hint(glfw.VISIBLE, False)
     window = glfw.create_window(640, 720, "test", None, None)

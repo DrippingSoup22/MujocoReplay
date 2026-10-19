@@ -51,7 +51,7 @@ Display › Graphics, and choose **High performance**.
 
 ### With Python: the command line and videos
 
-The command line, and with it videos, needs Python 3.11 to 3.14. From a
+The command line, and with it videos, needs Python 3.11 to 3.15. From a
 clone of this repository:
 
 ```powershell
@@ -118,6 +118,9 @@ lists them all.
 
 ## Status
 
+**Stage R19, MuJoCo 3.16.0 (2026-10-19):** the tool now pins MuJoCo
+3.16.0, as Centipede does, and runs on Python 3.11 to 3.15.
+
 **Stage R18, GIFs (2026-10-17):** **Ctrl+R**, or the panel's Record GIF,
 records what the scene shows into a GIF in your Downloads folder, and
 `render` writes GIFs too.
@@ -169,8 +172,8 @@ python -m pytest
 ```
 
 `video` adds the packages that write MP4 files, and `dev` the test tools; the
-window itself needs only MuJoCo, NumPy, and GLFW. MuJoCo 3.12.0, which this
-tool and Centipede pin, has wheels for Python 3.10 to 3.14 only. Use the
+window itself needs only MuJoCo, NumPy, and GLFW. MuJoCo 3.16.0, which this
+tool and Centipede pin, has wheels for Python 3.10 to 3.15 only. Use the
 native Windows environment for the window: OpenGL through WSL is unreliable.
 
 ### The installed program
