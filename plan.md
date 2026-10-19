@@ -827,4 +827,4 @@ the conflict once `pip install -e .` runs again in it, from this folder.
 | R16 — Model files | Built (2026-10-10); merged into `main`; the user's check pending |
 | R17 — Paths | Built (2026-10-16); merged into `main`; Centipede's first recordings with paths, and the user's check, pending |
 | R18 — GIFs | Built (2026-10-17); merged into `main`; the user's check pending |
-| R19 — MuJoCo 3.16.0 | Done (2026-10-19); the laptop's environments need `pip install -e .` again |
+| R19 — MuJoCo 3.16.0 | Done (2026-10-19); merged into `main`; the laptop's environments need `pip install -e .` again |
